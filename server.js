@@ -334,6 +334,7 @@ async function syncFolder(folderId) {
     });
     if (pageToken) params.set('pageToken', pageToken);
 
+    const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
     let resp;
     try {
       resp = await fetch(url, {
