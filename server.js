@@ -890,16 +890,15 @@ export async function handleRequest(req, res) {
   // Parse URL & Method Tunneling
   const host = req.headers.host || `localhost:${PORT}`;
   const protocol = req.headers['x-forwarded-proto'] || 'http';
-  let requestPath = req.url;
+  const url = new URL(req.url, `${protocol}://${host}`);
 
-  // Fallback for Vercel Serverless Function when req.url is rewritten to /api/index.js
-  if (req.headers['x-matched-path'] && (req.url === '/api/index.js' || req.url.startsWith('/api/index.js?'))) {
-    const queryPart = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-    requestPath = req.headers['x-matched-path'] + queryPart;
-  }
-
-  const url = new URL(requestPath, `${protocol}://${host}`);
   let pathname = url.pathname;
+  if (url.searchParams.has('__path')) {
+    const sub = url.searchParams.get('__path').replace(/^\/+/, '');
+    pathname = sub ? '/' + sub : '/';
+  } else if (req.headers['x-matched-path'] && !req.headers['x-matched-path'].includes('index')) {
+    pathname = req.headers['x-matched-path'];
+  }
 
   let method = req.method.toUpperCase();
   if (method === 'POST' && req.headers['x-http-method-override']) {
