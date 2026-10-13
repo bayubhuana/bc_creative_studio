@@ -1,0 +1,6 @@
+/* studio-client.css */
+/* Specific client styles are already mostly in base.css, this can hold any specific overrides */
+.st-app.st-client textarea {
+  width: 100%; min-height: 120px; font-family: var(--st-font-sans); font-size: 16px; padding: var(--st-space-3);
+  border: 1px solid var(--st-border); border-radius: var(--st-radius-md); background: var(--st-bg); color: var(--st-text); margin-bottom: var(--st-space-4); resize: vertical;
+}

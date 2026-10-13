@@ -1,0 +1,14 @@
+# Rahasia
+.env
+.env.*
+!.env.example
+
+# Dependensi & sistem
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.vercel/
+
+# Cache lokal
+data/thumb-cache/

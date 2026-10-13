@@ -1,0 +1,40 @@
+[
+  {
+    "id": 1,
+    "token": "budi-wedding-token-2026",
+    "title": "Budi & Sari Wedding",
+    "source_folder_id": "1kWFeHliLzO1HYEZ3dh5nFruHxhq7_4Wi",
+    "result_folder_id": "1kWFeHliLzO1HYEZ3dh5nFruHxhq7_4Wi",
+    "max_select": 20,
+    "status": "submitted",
+    "selected_ids": [
+      "1l1YARAyw5avPvTRZNJmceKiNXfNs8cGz",
+      "1g8cKBu-Upm3upaQWRJU2eRZd8MBdL7Hj",
+      "1BCCdbE5m8s6KIBeKsPNCE-iSpb4inKJD",
+      "1gX5-5dNNUKvjSiY1-GfgfnXEsN8v_ly9",
+      "1BpShpUnj-cA6gEtJMfmR1zYEnF-rCVeo",
+      "1kVniyrtJr0IeOKNjI-vqIbWKC57U1RiS",
+      "1QYc7HmF1iQ_NjkROPiCfweVjkpVzZ1kQ",
+      "1PW5-RbY23ipAoGFX77n22pyA29hd7OOt",
+      "1xCizMYoGa_qWzdiVG9kJWaTeqWuRjuhH",
+      "1JPxZ0U8GR1VGkgHvoexx2IvgprsH2WvX",
+      "1ltXdL54ZePNu18lDFjfSg08ka0dzaDx2",
+      "1uSqZKVxT55BWY_NuPDKtlRMgw8wwzFgm",
+      "1FnK4qKehtJXzuirbCwiUr7XuPzo277YY",
+      "1ibsoDMfzwmK9g7dzZvjtHiQi_YhfAojx",
+      "1qr_hHZHm-CAy6IfJRPzc8wthnpR3ET5P",
+      "1BjXmfSLnrlICOHwYcTKmh9SSTOkwlyed",
+      "1Hw8awhdVl4vGS7Qi2fmvuO6elHbQ1f5x",
+      "1SoKkYIJv3b4DWdaoj8F4khVKnsIBLo75",
+      "1Oc5jtHhQUg6-zhsYdqVCXyaBEGRH96T4",
+      "1OvfTJllNXvLgen8Q8W4D7ATkoxvZZq3-"
+    ],
+    "selected_meta": {},
+    "selected_count": 20,
+    "note": "",
+    "created_at": "2026-10-07 10:00:00",
+    "updated_at": "2026-10-07 16:53:00",
+    "submitted_at": "2026-10-07 16:53:00",
+    "reopened_at": null
+  }
+]

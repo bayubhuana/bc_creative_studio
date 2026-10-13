@@ -1,0 +1,81 @@
+/* studio-editor.css */
+.st-app.st-editor {
+  padding-bottom: var(--st-space-6);
+}
+
+.st-editor-main {
+  display: flex;
+  gap: var(--st-space-6);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.st-editor-list-panel {
+  flex: 1 1 380px;
+  min-width: 280px;
+}
+
+.st-editor-detail-panel {
+  flex: 2 1 480px;
+  min-width: 300px;
+  background: var(--st-surface);
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius-lg);
+  padding: var(--st-space-5);
+  display: none;
+}
+
+@media (max-width: 800px) {
+  .st-editor-main.st-has-detail .st-editor-list-panel {
+    display: none;
+  }
+  .st-editor-detail-panel {
+    flex: 1 1 100%;
+    min-width: 100%;
+    padding: var(--st-space-4);
+  }
+}
+
+.st-client-card {
+  background: var(--st-surface);
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius-lg);
+  padding: var(--st-space-4);
+  margin-bottom: var(--st-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--st-space-3);
+  transition: border-color var(--st-dur-fast), transform var(--st-dur-fast);
+}
+.st-client-card:hover {
+  border-color: #555555;
+}
+.st-client-card--active {
+  border-color: var(--st-accent-blue) !important;
+}
+
+.st-client-card-header { display: flex; justify-content: space-between; align-items: center; gap: var(--st-space-2); }
+.st-client-card-title { font-size: 1.25rem; font-weight: 700; margin: 0; }
+.st-badge-status { padding: 4px 12px; border-radius: var(--st-radius-pill); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.st-status-unstarted { background: #1f1f1f; color: #a3a3a3; }
+.st-status-draft { background: #112A45; color: #177DDC; }
+.st-status-submitted { background: #162B12; color: #49AA19; }
+.st-status-reopened { background: #2A121F; color: #CB2B83; }
+
+.st-editor-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.st-form-group { margin-bottom: var(--st-space-4); }
+.st-form-group label { display: block; font-weight: 600; margin-bottom: var(--st-space-1); }
+.st-form-control {
+  width: 100%; height: 44px; padding: 0 var(--st-space-3); border: 1px solid var(--st-border); border-radius: var(--st-radius-md); background: var(--st-bg); color: var(--st-text); font-family: var(--st-font-sans); font-size: 16px;
+}
+.st-link-box {
+  background: var(--st-bg); padding: var(--st-space-3); border-radius: var(--st-radius-md); border: 1px dashed var(--st-border); word-break: break-all; margin-bottom: var(--st-space-3);
+}
