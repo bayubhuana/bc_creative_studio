@@ -3,6 +3,9 @@
   "outputDirectory": "public",
   "cleanUrls": true,
   "functions": {
+    "server.js": {
+      "includeFiles": "{data,public}/**"
+    },
     "api/index.js": {
       "includeFiles": "data/**"
     }

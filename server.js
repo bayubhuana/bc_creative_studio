@@ -19,7 +19,10 @@ const DEFAULT_WA = (process.env.EDITOR_WA || '').trim();
 // On Vercel, the project root filesystem is read-only at runtime except for /tmp.
 const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'pilih-foto-data') : path.join(__dirname, 'data');
 const CACHE_DIR = IS_VERCEL ? path.join('/tmp', 'pilih-foto-cache') : path.join(__dirname, 'data', 'thumb-cache');
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = [
+  path.join(__dirname, 'public'),
+  path.join(process.cwd(), 'public')
+].find(p => fs.existsSync(p)) || path.join(__dirname, 'public');
 
 const GALLERIES_FILE = path.join(DATA_DIR, 'galleries.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
@@ -1493,9 +1496,9 @@ export async function handleRequest(req, res) {
 }
 
 // ==========================================
-// 7. LOCAL SERVER BOOTSTRAP
+// 7. BOOTSTRAP & EXPORTS
 // ==========================================
-if (process.argv[1] && process.argv[1].endsWith('server.js')) {
+if (!IS_VERCEL && process.argv[1] && process.argv[1].endsWith('server.js')) {
   const server = http.createServer(handleRequest);
   server.listen(PORT, () => {
     console.log(`[Studio] Server running at http://localhost:${PORT}`);
@@ -1504,3 +1507,16 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     console.log(`[Studio] Google Drive API Key: ${GOOGLE_API_KEY ? 'Configured ✓' : 'Demo Mode (Not Set)'}`);
   });
 }
+
+export default async function handler(req, res) {
+  try {
+    return await handleRequest(req, res);
+  } catch (err) {
+    console.error('[Vercel Server Error]:', err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ code: 'internal_server_error', message: err.message || 'Internal Server Error' }));
+    }
+  }
+}
+
