@@ -725,7 +725,9 @@ async function readJsonBody(req) {
 }
 
 function verifyEditor(req, url) {
-  const headerKey = req.headers['x-studio-key'];
+  const authHeader = req.headers['authorization'];
+  const bearerKey = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const headerKey = req.headers['x-studio-key'] || bearerKey;
   const queryKey = url.searchParams.get('key') || url.searchParams.get('editor_key');
   const passedKey = headerKey || queryKey;
   const settings = getSettings();
@@ -1301,6 +1303,68 @@ export async function handleRequest(req, res) {
     if (subAction === 'warm-thumbs' && method === 'POST') {
       const stats = await prefetchThumbs(gallery.source_folder_id, 48);
       return sendJson(res, 200, stats);
+    }
+
+    // GET /api/editor/galleries/:id/all-photos
+    if (subAction === 'all-photos' && method === 'GET') {
+      try {
+        const files = await getFileIndex(gallery.source_folder_id, false);
+        const formatted = files.map(p => formatClientPhotoItem(p, gallery.source_folder_id));
+        const selectedIds = Array.isArray(gallery.selected_ids) ? gallery.selected_ids : [];
+        return sendJson(res, 200, {
+          id: gallery.id,
+          title: gallery.title,
+          maxSelect: Number(gallery.max_select || 0),
+          status: gallery.status,
+          selectedIds,
+          photos: formatted
+        });
+      } catch (err) {
+        return sendError(res, 500, 'photos_error', err.message || 'Gagal memuat foto dari Google Drive.');
+      }
+    }
+
+    // POST /api/editor/galleries/:id/select (Editor Manual Selection)
+    if (subAction === 'select' && method === 'POST') {
+      let body = {};
+      try { body = await readJsonBody(req); } catch {}
+
+      const rawIds = sanitizeSelectedIds(body.ids || []);
+      const maxSelect = Number(gallery.max_select || 0);
+
+      if (maxSelect > 0 && rawIds.length > maxSelect) {
+        return sendError(res, 422, 'limit', `Maksimal pilihan adalah ${maxSelect} foto.`);
+      }
+
+      let files = [];
+      try {
+        files = await getFileIndex(gallery.source_folder_id, false);
+      } catch {}
+
+      const meta = {};
+      for (const sid of rawIds) {
+        const file = files.find(f => f.id === sid);
+        if (file && file.name) {
+          meta[sid] = file.name;
+        } else if (gallery.selected_meta && gallery.selected_meta[sid]) {
+          meta[sid] = gallery.selected_meta[sid];
+        }
+      }
+
+      const now = getCurrentTimestamp();
+      gallery.selected_ids = rawIds;
+      gallery.selected_meta = meta;
+      gallery.selected_count = rawIds.length;
+      gallery.status = 'submitted';
+      gallery.submitted_at = gallery.submitted_at || now;
+      gallery.updated_at = now;
+
+      await saveGalleries(galleries);
+      return sendJson(res, 200, {
+        ok: true,
+        count: rawIds.length,
+        status: gallery.status
+      });
     }
 
     // DELETE /api/editor/galleries/:id or POST .../delete

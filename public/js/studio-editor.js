@@ -88,6 +88,7 @@
               </div>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="st-btn st-btn-primary" id="st-headerManualSelectBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">✋ Pilih Foto Manual</button>
               <button class="st-btn st-btn-outline" id="st-warmThumbsBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">⚡ Siapkan Thumbnail</button>
               <button class="st-btn st-btn-outline" id="st-refreshDetailBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">↻ Muat Ulang Foto</button>
             </div>
@@ -163,7 +164,10 @@
         </div>
         <div class="st-lightbox-footer">
           <span id="st-lbname" style="font-weight: 600;"></span>
-          <a id="st-lbDriveBtn" href="#" target="_blank" rel="noopener noreferrer" class="st-btn st-btn-outline" style="height: 36px; font-size: 14px;">📥 Unduh Asli</a>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button type="button" id="st-lbSelectToggle" class="st-lb-select-btn" style="display: none;">✓ Pilih Foto</button>
+            <a id="st-lbDriveBtn" href="#" target="_blank" rel="noopener noreferrer" class="st-btn st-btn-outline" style="height: 36px; font-size: 14px;">📥 Unduh Asli</a>
+          </div>
         </div>
       </div>
     `;
@@ -314,6 +318,7 @@
         </div>
         <div style="display: flex; gap: var(--st-space-2); margin-top: var(--st-space-2); flex-wrap: wrap;">
           <button type="button" class="st-btn st-btn-primary st-view-btn" data-id="${g.id}" ${countNum === 0 ? 'disabled' : ''}>Lihat Pilihan (${countNum})</button>
+          <button type="button" class="st-btn st-btn-outline st-manual-select-btn" data-id="${g.id}" title="Pilih foto manual oleh editor">✋ Pilih Foto</button>
           <button type="button" class="st-btn st-btn-outline st-edit-btn" data-id="${g.id}">Atur</button>
           <button type="button" class="st-btn st-btn-outline st-copy-btn" data-link="${esc(clientLink)}">Salin Link Klien</button>
           ${g.status === 'submitted' ? `<button type="button" class="st-btn st-btn-outline st-reopen-btn" data-id="${g.id}">Buka Akses</button>` : ''}
@@ -324,6 +329,9 @@
 
     list.querySelectorAll('.st-view-btn').forEach(b => {
       b.onclick = () => viewGallery(b.dataset.id, false);
+    });
+    list.querySelectorAll('.st-manual-select-btn').forEach(b => {
+      b.onclick = () => openManualSelectConfirm(b.dataset.id);
     });
     list.querySelectorAll('.st-edit-btn').forEach(b => {
       b.onclick = () => openManageDialog(b.dataset.id);
@@ -488,6 +496,10 @@
   }
 
   function closeDetailPanel() {
+    if (isPickerMode) {
+      exitPickerMode();
+      return;
+    }
     activeGalleryId = null;
     $('st-detailPanel').style.display = 'none';
     $('st-listPanel').style.display = 'block';
@@ -539,8 +551,14 @@
       $('st-detailContent').innerHTML = `
         ${noteHtml}
         <div class="st-banner">Belum ada foto yang dipilih oleh klien pada galeri ini.</div>
-        ${clientLink ? `<div style="margin-top: 12px;"><button type="button" class="st-btn st-btn-outline" id="st-emptyCopyLinkBtn" style="height: 34px; font-size: 13px;">🔗 Salin Link Klien</button></div>` : ''}
+        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="st-btn st-btn-primary" id="st-emptyManualSelectBtn" style="height: 34px; font-size: 13px;">✋ Pilih Foto Manual Sekarang</button>
+          ${clientLink ? `<button type="button" class="st-btn st-btn-outline" id="st-emptyCopyLinkBtn" style="height: 34px; font-size: 13px;">🔗 Salin Link Klien</button>` : ''}
+        </div>
       `;
+      if ($('st-emptyManualSelectBtn')) {
+        $('st-emptyManualSelectBtn').onclick = () => openManualSelectConfirm(id);
+      }
       if ($('st-emptyCopyLinkBtn')) {
         $('st-emptyCopyLinkBtn').onclick = () => copyText(clientLink, 'Link klien disalin!');
       }
@@ -574,6 +592,7 @@
       ${missingBannerHtml}
       <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;">
         <span class="st-text-muted" style="font-size: 14px; margin-right: 4px;">Total: <strong>${currentPhotos.length}</strong> foto</span>
+        <button type="button" class="st-btn st-btn-primary" id="st-detailManualSelectBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">✋ Ubah / Tambah Pilihan</button>
         ${clientLink ? `<button type="button" class="st-btn st-btn-outline" id="st-detailCopyLinkBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">🔗 Salin Link Klien</button>` : ''}
         <a href="${currentCsvUrl}" download="pilihan_${esc(id)}.csv" class="st-btn st-btn-outline" style="height: 34px; font-size: 13px; padding: 0 14px;">📥 Unduh CSV</a>
         <button type="button" class="st-btn st-btn-outline" id="st-copyNamesBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">📋 Salin Nama File</button>
@@ -581,6 +600,10 @@
       </div>
       <div class="st-photo-grid st-editor-photo-grid" id="st-editorGrid" style="margin-top: 16px;"></div>
     `;
+
+    if ($('st-detailManualSelectBtn')) {
+      $('st-detailManualSelectBtn').onclick = () => openManualSelectConfirm(id);
+    }
 
     if ($('st-detailCopyLinkBtn')) {
       $('st-detailCopyLinkBtn').onclick = () => copyText(clientLink, 'Link klien disalin!');
@@ -847,6 +870,459 @@
         dlBtn.href = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(p.id)}`;
       }
     }
+
+    const lbBtn = $('st-lbSelectToggle');
+    if (lbBtn) lbBtn.style.display = 'none';
+  }
+
+  // ==========================================
+  // EDITOR MANUAL SELECTION (PICKER MODE)
+  // ==========================================
+  let isPickerMode = false;
+  let pickerGalleryId = null;
+  let pickerData = null;
+  let pickerSelected = new Set();
+  let pickerPhotos = [];
+  let pickerFiltered = [];
+  let pickerRenderedCount = 0;
+  let pickerObserver = null;
+  const PICKER_CHUNK_SIZE = 40;
+
+  async function openManualSelectConfirm(id) {
+    const g = galleries.find(x => String(x.id) === String(id));
+    const title = g ? g.title : 'Galeri';
+    const ok = await confirmDialog({
+      title: 'Pilih Foto Manual oleh Editor?',
+      message: `Apakah Anda yakin ingin memilih foto sendiri secara manual untuk "${title}"? Tindakan ini berisiko menimbulkan ketidaksesuaian jika klien memiliki preferensi berbeda atau sedang memilih fotonya. Pastikan Anda telah berkoordinasi dengan klien.`,
+      confirmText: 'Ya, Lanjut Pilih Manual',
+      cancelText: 'Batal',
+      variant: 'warning'
+    });
+    if (!ok) return;
+    startManualSelection(id);
+  }
+
+  async function startManualSelection(id) {
+    pickerGalleryId = id;
+    activeGalleryId = id;
+    isPickerMode = true;
+    renderGalleries();
+
+    if (window.innerWidth < 900) {
+      $('st-listPanel').style.display = 'none';
+    } else {
+      $('st-listPanel').style.display = 'block';
+    }
+    $('st-detailPanel').style.display = 'block';
+    $('st-detailTitle').textContent = 'Pilih Foto Manual...';
+    if ($('st-detailSyncInfo')) $('st-detailSyncInfo').textContent = '';
+    $('st-detailContent').innerHTML = `
+      <div class="st-container" style="padding: 32px 0; text-align: center;">
+        <div class="st-shell-loading">Memuat seluruh foto galeri dari Google Drive...</div>
+      </div>
+    `;
+
+    try {
+      const data = await apiFetch(`/editor/galleries/${id}/all-photos`);
+      pickerData = data;
+      pickerPhotos = Array.isArray(data.photos) ? data.photos : [];
+      pickerSelected = new Set(Array.isArray(data.selectedIds) ? data.selectedIds : []);
+      pickerFiltered = [...pickerPhotos];
+      renderPickerUI();
+    } catch (err) {
+      $('st-detailContent').innerHTML = `
+        <div class="st-banner" style="border-color:#ff4d4f; color:#ff4d4f; flex-direction: column; align-items: flex-start; gap: 10px;">
+          <span>❌ Gagal memuat foto: ${esc(err.message)}</span>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="st-btn st-btn-outline" id="st-pickerRetryBtn">↻ Coba Lagi</button>
+            <button type="button" class="st-btn st-btn-outline" id="st-pickerFailBackBtn">← Kembali</button>
+          </div>
+        </div>
+      `;
+      if ($('st-pickerRetryBtn')) $('st-pickerRetryBtn').onclick = () => startManualSelection(id);
+      if ($('st-pickerFailBackBtn')) $('st-pickerFailBackBtn').onclick = () => exitPickerMode();
+    }
+  }
+
+  function renderPickerUI() {
+    if (!pickerData) return;
+    const max = Number(pickerData.maxSelect || 0);
+    const maxLabel = max > 0 ? ` / ${max}` : '';
+
+    $('st-detailTitle').textContent = `Pilih Foto: ${pickerData.title}`;
+    if ($('st-detailSyncInfo')) {
+      $('st-detailSyncInfo').textContent = `${pickerPhotos.length} foto tersedia di Google Drive`;
+    }
+
+    $('st-detailContent').innerHTML = `
+      <div class="st-picker-wrap">
+        <div class="st-picker-header">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button type="button" class="st-btn st-btn-outline" id="st-pickerBackBtn" style="height: 38px; font-size: 13px;">← Kembali ke Detail</button>
+            <input type="search" id="st-pickerSearch" class="st-picker-search" placeholder="🔍 Cari foto berdasarkan nama...">
+          </div>
+          <div class="st-text-muted" style="font-size: 13px;" id="st-pickerFilterCount">
+            Menampilkan ${pickerFiltered.length} foto
+          </div>
+        </div>
+
+        <div class="st-banner" style="border-color: #fbbf24; color: #fbbf24; font-size: 13px; margin: 0;">
+          <span>⚠️ <strong>Mode Pemilihan Manual:</strong> Anda memilih langsung untuk klien ini. Klik foto untuk memilih / membatalkan. Pilihan akan disimpan dan status dikunci sebagai <em>Terkirim</em>.</span>
+        </div>
+
+        <div class="st-photo-grid st-picker-grid" id="st-pickerGrid"></div>
+
+        <div class="st-picker-bottom-bar" id="st-pickerBar">
+          <div class="st-picker-info">
+            <span id="st-pickerCounter">Terpilih: <strong>${pickerSelected.size}</strong>${maxLabel} foto</span>
+          </div>
+          <div class="st-picker-actions">
+            <button type="button" class="st-btn st-btn-outline" id="st-pickerSelectBatchBtn" style="font-size: 13px; height: 36px;">${max > 0 ? `Pilih Hingga Batas (${max})` : 'Pilih Semua'}</button>
+            <button type="button" class="st-btn st-btn-outline" id="st-pickerResetBtn" style="font-size: 13px; height: 36px;">Hapus Pilihan</button>
+            <button type="button" class="st-btn st-btn-outline" id="st-pickerCancelBtn" style="font-size: 13px; height: 36px;">Batal</button>
+            <button type="button" class="st-btn st-btn-primary" id="st-pickerSaveBtn" style="font-size: 13px; height: 36px;">💾 Simpan Pilihan</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $('st-pickerBackBtn').onclick = () => exitPickerMode();
+    $('st-pickerCancelBtn').onclick = () => exitPickerMode();
+    $('st-pickerResetBtn').onclick = () => {
+      pickerSelected.clear();
+      updatePickerCounters();
+      refreshPickerGridSelection();
+    };
+    $('st-pickerSelectBatchBtn').onclick = () => {
+      const max = Number(pickerData.maxSelect || 0);
+      const toSelect = max > 0 ? pickerFiltered.slice(0, max) : pickerFiltered;
+      pickerSelected.clear();
+      toSelect.forEach(p => pickerSelected.add(p.id));
+      updatePickerCounters();
+      refreshPickerGridSelection();
+    };
+    $('st-pickerSaveBtn').onclick = () => saveManualSelection();
+
+    let searchDebounce = null;
+    $('st-pickerSearch').oninput = (e) => {
+      if (searchDebounce) clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        const q = e.target.value.trim().toLowerCase();
+        if (!q) {
+          pickerFiltered = [...pickerPhotos];
+        } else {
+          pickerFiltered = pickerPhotos.filter(p => (p.name || '').toLowerCase().includes(q));
+        }
+        $('st-pickerFilterCount').textContent = `Menampilkan ${pickerFiltered.length} foto`;
+        renderPickerGrid();
+      }, 200);
+    };
+
+    renderPickerGrid();
+  }
+
+  function renderPickerGrid() {
+    pickerRenderedCount = 0;
+    removePickerSentinel();
+    const gridEl = $('st-pickerGrid');
+    if (!gridEl) return;
+    gridEl.innerHTML = '';
+
+    if (!pickerFiltered.length) {
+      gridEl.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--st-text-muted); grid-column: 1 / -1;">Tidak ada foto yang cocok dengan pencarian.</div>';
+      return;
+    }
+
+    renderNextPickerChunk();
+    if (pickerRenderedCount < pickerFiltered.length) {
+      setupPickerSentinel();
+    }
+  }
+
+  function renderNextPickerChunk() {
+    const gridEl = $('st-pickerGrid');
+    if (!gridEl || pickerRenderedCount >= pickerFiltered.length) {
+      removePickerSentinel();
+      return;
+    }
+
+    const nextBatch = pickerFiltered.slice(pickerRenderedCount, pickerRenderedCount + PICKER_CHUNK_SIZE);
+    const frag = document.createDocumentFragment();
+    const max = Number(pickerData.maxSelect || 0);
+    const limitReached = max > 0 && pickerSelected.size >= max;
+
+    nextBatch.forEach((p, idx) => {
+      const i = pickerRenderedCount + idx;
+      const isSelected = pickerSelected.has(p.id);
+      const card = document.createElement('div');
+      card.className = 'st-photo-card' + (isSelected ? ' st-selected' : '') + (!isSelected && limitReached ? ' st-limit-reached' : '');
+      card.dataset.id = p.id;
+      card.dataset.i = i;
+      card.tabIndex = 0;
+
+      const candidates = getImageCandidates(p, false);
+      const img = document.createElement('img');
+      img.width = 400;
+      img.height = 400;
+      img.referrerPolicy = 'no-referrer';
+      img.alt = p.name || '(nama belum tersedia)';
+      img.loading = i < 8 ? 'eager' : 'lazy';
+      img.decoding = 'async';
+
+      let attempt = 0;
+      img.onload = () => {
+        card.classList.remove('st-img-error');
+        card.classList.add('st-img-loaded');
+      };
+      img.onerror = () => {
+        attempt++;
+        if (attempt < candidates.length) {
+          img.src = candidates[attempt];
+        } else {
+          card.classList.add('st-img-error');
+        }
+      };
+      img.src = candidates[0] || p.src;
+
+      const retryWrap = document.createElement('div');
+      retryWrap.className = 'st-img-retry-wrap';
+      retryWrap.innerHTML = `<span>Gagal memuat pratinjau</span><button type="button" class="st-retry-img-btn" data-i="${i}">↻ Muat ulang</button>`;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'st-photo-card__overlay';
+
+      const checkBadge = document.createElement('div');
+      checkBadge.className = 'st-badge-check';
+      checkBadge.textContent = '✓';
+
+      const displayLabel = p.name || '(nama belum tersedia)';
+      const badgeName = document.createElement('div');
+      badgeName.className = 'st-badge-name';
+      badgeName.title = displayLabel;
+      badgeName.textContent = displayLabel;
+
+      const zoomBtn = document.createElement('button');
+      zoomBtn.type = 'button';
+      zoomBtn.className = 'st-zoom-btn';
+      zoomBtn.setAttribute('aria-label', 'Perbesar');
+      zoomBtn.textContent = '⤢';
+      zoomBtn.onclick = (e) => {
+        e.stopPropagation();
+        openPickerLb(i);
+      };
+
+      card.append(img, retryWrap, overlay, checkBadge, badgeName, zoomBtn);
+
+      card.onclick = (e) => {
+        if (e.target.closest('.st-zoom-btn') || e.target.closest('.st-retry-img-btn')) return;
+        togglePickerSelect(p.id);
+      };
+
+      card.onkeydown = (e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          togglePickerSelect(p.id);
+        }
+      };
+
+      frag.appendChild(card);
+    });
+
+    pickerRenderedCount += nextBatch.length;
+
+    const sentinel = $('st-picker-grid-sentinel');
+    if (sentinel) {
+      gridEl.insertBefore(frag, sentinel);
+    } else {
+      gridEl.appendChild(frag);
+    }
+
+    if (pickerRenderedCount >= pickerFiltered.length) {
+      removePickerSentinel();
+    }
+  }
+
+  function setupPickerSentinel() {
+    removePickerSentinel();
+    const gridEl = $('st-pickerGrid');
+    if (!gridEl || pickerRenderedCount >= pickerFiltered.length) return;
+
+    const sentinel = document.createElement('div');
+    sentinel.id = 'st-picker-grid-sentinel';
+    sentinel.style.width = '100%';
+    sentinel.style.height = '50px';
+    sentinel.style.gridColumn = '1 / -1';
+    sentinel.style.display = 'flex';
+    sentinel.style.alignItems = 'center';
+    sentinel.style.justifyContent = 'center';
+    sentinel.style.color = 'var(--st-text-muted)';
+    sentinel.style.fontSize = '13px';
+    sentinel.textContent = 'Memuat foto lainnya...';
+    gridEl.appendChild(sentinel);
+
+    if ('IntersectionObserver' in window) {
+      pickerObserver = new IntersectionObserver((entries) => {
+        if (entries[0] && entries[0].isIntersecting) {
+          renderNextPickerChunk();
+        }
+      }, { rootMargin: '300px' });
+      pickerObserver.observe(sentinel);
+    } else {
+      while (pickerRenderedCount < pickerFiltered.length) {
+        renderNextPickerChunk();
+      }
+    }
+  }
+
+  function removePickerSentinel() {
+    if (pickerObserver) {
+      pickerObserver.disconnect();
+      pickerObserver = null;
+    }
+    const sentinel = $('st-picker-grid-sentinel');
+    if (sentinel) sentinel.remove();
+  }
+
+  function togglePickerSelect(photoId) {
+    const max = Number(pickerData?.maxSelect || 0);
+    if (pickerSelected.has(photoId)) {
+      pickerSelected.delete(photoId);
+    } else {
+      if (max > 0 && pickerSelected.size >= max) {
+        toast(`Maksimal pilihan adalah ${max} foto.`);
+        return;
+      }
+      pickerSelected.add(photoId);
+    }
+
+    updatePickerCounters();
+    refreshPickerGridSelection();
+
+    const lbBtn = $('st-lbSelectToggle');
+    if (lbBtn && $('st-lb').classList.contains('st-open')) {
+      const curPhoto = pickerFiltered[currentCur];
+      if (curPhoto && curPhoto.id === photoId) {
+        const sel = pickerSelected.has(photoId);
+        lbBtn.classList.toggle('st-selected', sel);
+        lbBtn.textContent = sel ? '✓ Terpilih' : '+ Pilih Foto Ini';
+      }
+    }
+  }
+
+  function updatePickerCounters() {
+    const max = Number(pickerData?.maxSelect || 0);
+    const maxLabel = max > 0 ? ` / ${max}` : '';
+    const counterEl = $('st-pickerCounter');
+    if (counterEl) {
+      counterEl.innerHTML = `Terpilih: <strong>${pickerSelected.size}</strong>${maxLabel} foto`;
+    }
+  }
+
+  function refreshPickerGridSelection() {
+    const gridEl = $('st-pickerGrid');
+    if (!gridEl) return;
+    const max = Number(pickerData?.maxSelect || 0);
+    const limitReached = max > 0 && pickerSelected.size >= max;
+
+    gridEl.querySelectorAll('.st-photo-card').forEach(card => {
+      const pid = card.dataset.id;
+      const isSel = pickerSelected.has(pid);
+      card.classList.toggle('st-selected', isSel);
+      card.classList.toggle('st-limit-reached', !isSel && limitReached);
+    });
+  }
+
+  async function saveManualSelection() {
+    if (!pickerGalleryId) return;
+    const saveBtn = $('st-pickerSaveBtn');
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '⏳ Menyimpan...';
+    }
+
+    try {
+      const ids = Array.from(pickerSelected);
+      const res = await apiFetch(`/editor/galleries/${pickerGalleryId}/select`, {
+        method: 'POST',
+        body: JSON.stringify({ ids })
+      });
+
+      toast(`Berhasil menyimpan ${res.count} foto pilihan!`, 'success');
+      exitPickerMode();
+      await loadGalleries(true);
+      await viewGallery(pickerGalleryId, true);
+    } catch (err) {
+      toast(`Gagal menyimpan: ${err.message}`, 'error');
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Simpan Pilihan';
+      }
+    }
+  }
+
+  function exitPickerMode() {
+    isPickerMode = false;
+    pickerData = null;
+    pickerSelected.clear();
+    pickerPhotos = [];
+    pickerFiltered = [];
+    removePickerSentinel();
+
+    const lbBtn = $('st-lbSelectToggle');
+    if (lbBtn) lbBtn.style.display = 'none';
+
+    if (activeGalleryId) {
+      viewGallery(activeGalleryId, false);
+    } else {
+      closeDetailPanel();
+    }
+  }
+
+  function openPickerLb(i) {
+    if (!pickerFiltered.length) return;
+    currentCur = i;
+    $('st-lb').classList.add('st-open');
+    showPickerLb();
+  }
+
+  function showPickerLb() {
+    const p = pickerFiltered[currentCur];
+    if (!p) return;
+    const lbImg = $('st-lbimg');
+    lbImg.referrerPolicy = 'no-referrer';
+    const candidates = getImageCandidates(p, true);
+    let attempt = 0;
+    lbImg.onerror = () => {
+      attempt++;
+      if (attempt < candidates.length) {
+        lbImg.src = candidates[attempt];
+      }
+    };
+    lbImg.src = candidates[0] || p.srcLg || p.src;
+    const displayLabel = p.name || '(nama belum tersedia)';
+    lbImg.alt = displayLabel;
+    $('st-lbname').textContent = `${displayLabel} (${currentCur + 1} / ${pickerFiltered.length})`;
+
+    const dlBtn = $('st-lbDriveBtn');
+    if (dlBtn) {
+      if (String(p.id).startsWith('demo')) {
+        dlBtn.style.display = 'none';
+      } else {
+        dlBtn.style.display = 'inline-flex';
+        dlBtn.href = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(p.id)}`;
+      }
+    }
+
+    const lbBtn = $('st-lbSelectToggle');
+    if (lbBtn) {
+      lbBtn.style.display = 'inline-flex';
+      const isSel = pickerSelected.has(p.id);
+      lbBtn.classList.toggle('st-selected', isSel);
+      lbBtn.textContent = isSel ? '✓ Terpilih' : '+ Pilih Foto Ini';
+      lbBtn.onclick = () => {
+        togglePickerSelect(p.id);
+      };
+    }
   }
 
   function bindEvents() {
@@ -1005,11 +1481,22 @@
     };
 
     $('st-closeDetailBtn').onclick = closeDetailPanel;
+    if ($('st-headerManualSelectBtn')) {
+      $('st-headerManualSelectBtn').onclick = () => {
+        if (activeGalleryId) openManualSelectConfirm(activeGalleryId);
+      };
+    }
 
     const stepLb = d => {
-      if (!currentPhotos.length) return;
-      currentCur = (currentCur + d + currentPhotos.length) % currentPhotos.length;
-      showLb();
+      if (isPickerMode) {
+        if (!pickerFiltered.length) return;
+        currentCur = (currentCur + d + pickerFiltered.length) % pickerFiltered.length;
+        showPickerLb();
+      } else {
+        if (!currentPhotos.length) return;
+        currentCur = (currentCur + d + currentPhotos.length) % currentPhotos.length;
+        showLb();
+      }
     };
     $('st-lbPrevBtn').onclick = () => stepLb(-1);
     $('st-lbNextBtn').onclick = () => stepLb(1);

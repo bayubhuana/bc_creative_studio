@@ -33,6 +33,60 @@
     "submitted_at": "2026-10-07 16:53:00",
     "title": "Budi & Sari Wedding",
     "token": "budi-wedding-token-2026",
-    "updated_at": "2026-10-07 16:53:00"
+    "updated_at": "2026-10-14 15:15:16",
+    "selected_meta": {
+      "1l1YARAyw5avPvTRZNJmceKiNXfNs8cGz": "DSCF0184.JPG",
+      "1g8cKBu-Upm3upaQWRJU2eRZd8MBdL7Hj": "DSCF0185.JPG",
+      "1BCCdbE5m8s6KIBeKsPNCE-iSpb4inKJD": "DSCF0187.JPG",
+      "1gX5-5dNNUKvjSiY1-GfgfnXEsN8v_ly9": "DSCF0186.JPG",
+      "1BpShpUnj-cA6gEtJMfmR1zYEnF-rCVeo": "DSCF0188.JPG",
+      "1kVniyrtJr0IeOKNjI-vqIbWKC57U1RiS": "DSCF0189.JPG",
+      "1QYc7HmF1iQ_NjkROPiCfweVjkpVzZ1kQ": "DSCF0190.JPG",
+      "1PW5-RbY23ipAoGFX77n22pyA29hd7OOt": "DSCF0191.JPG",
+      "1xCizMYoGa_qWzdiVG9kJWaTeqWuRjuhH": "DSCF0193.JPG",
+      "1JPxZ0U8GR1VGkgHvoexx2IvgprsH2WvX": "DSCF0192.JPG",
+      "1ltXdL54ZePNu18lDFjfSg08ka0dzaDx2": "DSCF0194.JPG",
+      "1uSqZKVxT55BWY_NuPDKtlRMgw8wwzFgm": "DSCF0195.JPG",
+      "1FnK4qKehtJXzuirbCwiUr7XuPzo277YY": "DSCF0197.JPG",
+      "1ibsoDMfzwmK9g7dzZvjtHiQi_YhfAojx": "DSCF0196.JPG",
+      "1qr_hHZHm-CAy6IfJRPzc8wthnpR3ET5P": "DSCF0198.JPG",
+      "1BjXmfSLnrlICOHwYcTKmh9SSTOkwlyed": "DSCF0199.JPG",
+      "1Hw8awhdVl4vGS7Qi2fmvuO6elHbQ1f5x": "DSCF0200.JPG",
+      "1SoKkYIJv3b4DWdaoj8F4khVKnsIBLo75": "DSCF0201.JPG",
+      "1Oc5jtHhQUg6-zhsYdqVCXyaBEGRH96T4": "DSCF0203.JPG",
+      "1OvfTJllNXvLgen8Q8W4D7ATkoxvZZq3-": "DSCF0202.JPG"
+    }
+  },
+  {
+    "created_at": "2026-10-14 05:16:11",
+    "id": 2,
+    "max_select": 20,
+    "note": "ini pilihan saya ya",
+    "result_folder_id": "1mu5e_mifWUcN_UTJiXUQTih4AFQMthAB",
+    "selected_count": 7,
+    "selected_ids": [
+      "1zbHYabboMMB8c1iTlerR6erJpyWUEkUk",
+      "1eIN0-LXB7lbB9YCeggYvIyVOcnZulKXW",
+      "1ipiHf-Wza33tv5AXsdyHaMCkAo5UkaKt",
+      "1Vxbaet4DtXT-PXuIRFnGKfrz7fRohs9Q",
+      "1wFZpM9k-x5Ku-omyVGgeHk5Cs8aJRL3K",
+      "1e9A1DSobr-gwNxZKOd69Jwm3E-2dxPrU",
+      "1aUnWQfdK-tpfg8e07cYwCBEdQYTuOWJ0"
+    ],
+    "selected_meta": {
+      "1Vxbaet4DtXT-PXuIRFnGKfrz7fRohs9Q": "DSC00016.jpg",
+      "1aUnWQfdK-tpfg8e07cYwCBEdQYTuOWJ0": "DSC00020.jpg",
+      "1e9A1DSobr-gwNxZKOd69Jwm3E-2dxPrU": "DSC00019.jpg",
+      "1eIN0-LXB7lbB9YCeggYvIyVOcnZulKXW": "DSC00006.jpg",
+      "1ipiHf-Wza33tv5AXsdyHaMCkAo5UkaKt": "DSC00007.jpg",
+      "1wFZpM9k-x5Ku-omyVGgeHk5Cs8aJRL3K": "DSC00015.jpg",
+      "1zbHYabboMMB8c1iTlerR6erJpyWUEkUk": "DSC00011.jpg"
+    },
+    "source_folder_id": "1mu5e_mifWUcN_UTJiXUQTih4AFQMthAB",
+    "status": "submitted",
+    "submitted_at": "2026-10-14 05:16:57",
+    "title": "Widya (Birthday)",
+    "token": "8d46255407fd0592009df80edf721551",
+    "updated_at": "2026-10-14 06:07:46"
   }
 ]
