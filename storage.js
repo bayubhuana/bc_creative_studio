@@ -28,21 +28,38 @@ const memoryState = {
   isInitialized: false
 };
 
-// Micro-batching debounce timers for Firebase cloud uploads
+// Micro-batching debounce timers for cloud uploads
 const cloudDebounceTimers = new Map();
 const DEBOUNCE_DELAY_MS = 2000;
 
-// Cached OAuth2 Access Token for Google Cloud Storage
+// Cached OAuth2 Access Token for Firebase & Google Cloud
 let cachedOAuth = {
   token: null,
   expiresAt: 0
 };
 
 // ==========================================
-// 2. FIREBASE CREDENTIAL PARSER (FAIL-SAFE)
+// 2. HELPER FUNCTIONS
+// ==========================================
+// Normalizer to handle Firebase RTDB converting arrays to numeric keyed objects (e.g. {"0": {...}})
+export function normalizeArray(data) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') return Object.values(data);
+  return [];
+}
+
+// ==========================================
+// 3. CREDENTIAL PARSER (MULTI-BACKEND FAIL-SAFE)
 // ==========================================
 export function getFirebaseConfig() {
   try {
+    let rtdbUrl = (process.env.FIREBASE_DATABASE_URL || '').trim();
+    if (rtdbUrl) {
+      rtdbUrl = rtdbUrl.replace(/\/+$/, '');
+    }
+
+    const databaseSecret = (process.env.FIREBASE_DATABASE_SECRET || '').trim();
+
     let rawBucket = (process.env.FIREBASE_STORAGE_BUCKET || process.env.GCS_BUCKET || '').trim();
     if (rawBucket.startsWith('gs://')) {
       rawBucket = rawBucket.slice(5);
@@ -54,7 +71,7 @@ export function getFirebaseConfig() {
     let projectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
     let apiKey = (process.env.FIREBASE_API_KEY || '').trim();
 
-    // Check if a full service account JSON was provided in FIREBASE_SERVICE_ACCOUNT_KEY
+    // Check if full service account JSON was provided
     const serviceAccountJson = (process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || '').trim();
     if (serviceAccountJson) {
       try {
@@ -71,7 +88,6 @@ export function getFirebaseConfig() {
     }
 
     if (privateKey) {
-      // Clean up escaped newlines from environment strings
       privateKey = privateKey.replace(/\\n/g, '\n');
     }
 
@@ -81,31 +97,48 @@ export function getFirebaseConfig() {
 
     const hasServiceAccount = Boolean(clientEmail && privateKey);
     const hasApiKey = Boolean(apiKey);
+    const hasSecret = Boolean(databaseSecret);
 
-    if (rawBucket && (hasServiceAccount || hasApiKey)) {
-      return {
-        bucket: rawBucket,
-        clientEmail,
-        privateKey,
-        projectId,
-        apiKey,
-        hasServiceAccount,
-        hasApiKey
-      };
-    }
-    return null;
+    const isRtdb = Boolean(rtdbUrl);
+    const isStorage = Boolean(rawBucket && (hasServiceAccount || hasApiKey));
+
+    return {
+      rtdbUrl,
+      databaseSecret,
+      bucket: rawBucket,
+      clientEmail,
+      privateKey,
+      projectId,
+      apiKey,
+      hasServiceAccount,
+      hasApiKey,
+      hasSecret,
+      isRtdb,
+      isStorage
+    };
   } catch (err) {
     console.warn('[Storage] Exception in getFirebaseConfig:', err.message);
     return null;
   }
 }
 
+export function isRtdbReady() {
+  const cfg = getFirebaseConfig();
+  return Boolean(cfg && cfg.isRtdb);
+}
+
+export function isFirebaseStorageReady() {
+  const cfg = getFirebaseConfig();
+  return Boolean(cfg && cfg.isStorage);
+}
+
 export function isFirebaseReady() {
-  return getFirebaseConfig() !== null;
+  const cfg = getFirebaseConfig();
+  return Boolean(cfg && (cfg.isRtdb || cfg.isStorage));
 }
 
 // ==========================================
-// 3. ZERO-DEPENDENCY GOOGLE OAUTH2 TOKEN
+// 4. ZERO-DEPENDENCY GOOGLE OAUTH2 TOKEN
 // ==========================================
 async function getGoogleAccessToken(cfg) {
   if (!cfg || !cfg.hasServiceAccount) return null;
@@ -119,7 +152,7 @@ async function getGoogleAccessToken(cfg) {
     const header = { alg: 'RS256', typ: 'JWT' };
     const claimSet = {
       iss: cfg.clientEmail,
-      scope: 'https://www.googleapis.com/auth/devstorage.read_write',
+      scope: 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/devstorage.read_write',
       aud: 'https://oauth2.googleapis.com/token',
       exp: now + 3600,
       iat: now
@@ -166,11 +199,89 @@ async function getGoogleAccessToken(cfg) {
 }
 
 // ==========================================
-// 4. CLOUD STORAGE REST CLIENT (FAIL-SAFE)
+// 5. FIREBASE REALTIME DATABASE REST CLIENT
 // ==========================================
-async function downloadFromCloud(remotePath) {
+async function fetchFromRtdb(key) {
   const cfg = getFirebaseConfig();
-  if (!cfg) return null;
+  if (!cfg || !cfg.isRtdb) return null;
+
+  try {
+    let url = `${cfg.rtdbUrl}/data/${encodeURIComponent(key)}.json`;
+    const headers = {};
+
+    if (cfg.hasServiceAccount) {
+      const token = await getGoogleAccessToken(cfg);
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else if (cfg.hasSecret) {
+        url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
+      }
+    } else if (cfg.hasSecret) {
+      url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
+    }
+
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
+    if (resp.status === 404) return null;
+    if (!resp.ok) {
+      console.warn(`[Storage] RTDB GET /data/${key}.json returned HTTP ${resp.status}`);
+      return null;
+    }
+
+    const data = await resp.json();
+    if (data === null) return null;
+    return data;
+  } catch (err) {
+    console.warn(`[Storage] RTDB fetch for ${key} failed:`, err.message);
+    return null;
+  }
+}
+
+async function saveToRtdb(key, data) {
+  const cfg = getFirebaseConfig();
+  if (!cfg || !cfg.isRtdb) return false;
+
+  try {
+    let url = `${cfg.rtdbUrl}/data/${encodeURIComponent(key)}.json`;
+    const headers = { 'Content-Type': 'application/json' };
+
+    if (cfg.hasServiceAccount) {
+      const token = await getGoogleAccessToken(cfg);
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      } else if (cfg.hasSecret) {
+        url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
+      }
+    } else if (cfg.hasSecret) {
+      url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
+    }
+
+    const payload = JSON.stringify(data);
+    const resp = await fetch(url, {
+      method: 'PUT',
+      headers,
+      body: payload,
+      signal: AbortSignal.timeout(6000)
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.warn(`[Storage] RTDB PUT /data/${key}.json returned HTTP ${resp.status}: ${errText}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn(`[Storage] RTDB save for ${key} failed:`, err.message);
+    return false;
+  }
+}
+
+// ==========================================
+// 6. CLOUD STORAGE REST CLIENT (FAIL-SAFE)
+// ==========================================
+async function downloadFromGcs(remotePath) {
+  const cfg = getFirebaseConfig();
+  if (!cfg || !cfg.isStorage) return null;
 
   try {
     let url = '';
@@ -188,25 +299,22 @@ async function downloadFromCloud(remotePath) {
     }
 
     const resp = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-    if (resp.status === 404) {
-      return null; // File does not exist in bucket yet
-    }
+    if (resp.status === 404) return null;
     if (!resp.ok) {
-      console.warn(`[Storage] Cloud download for ${remotePath} returned HTTP ${resp.status}`);
+      console.warn(`[Storage] GCS download for ${remotePath} returned HTTP ${resp.status}`);
       return null;
     }
 
-    const text = await resp.text();
-    return text;
+    return await resp.text();
   } catch (err) {
-    console.warn(`[Storage] Cloud download for ${remotePath} failed:`, err.message);
+    console.warn(`[Storage] GCS download for ${remotePath} failed:`, err.message);
     return null;
   }
 }
 
-async function uploadToCloud(remotePath, contentString) {
+async function uploadToGcs(remotePath, contentString) {
   const cfg = getFirebaseConfig();
-  if (!cfg) return false;
+  if (!cfg || !cfg.isStorage) return false;
 
   try {
     let url = '';
@@ -232,18 +340,20 @@ async function uploadToCloud(remotePath, contentString) {
 
     if (!resp.ok) {
       const errText = await resp.text();
-      console.warn(`[Storage] Cloud upload for ${remotePath} returned HTTP ${resp.status}: ${errText}`);
+      console.warn(`[Storage] GCS upload for ${remotePath} returned HTTP ${resp.status}: ${errText}`);
       return false;
     }
 
     return true;
   } catch (err) {
-    console.warn(`[Storage] Cloud upload for ${remotePath} failed:`, err.message);
+    console.warn(`[Storage] GCS upload for ${remotePath} failed:`, err.message);
     return false;
   }
 }
 
-// Micro-batching debounced sync queue to prevent write-amplification
+// ==========================================
+// 7. MICRO-BATCHING DEBOUNCED SYNC QUEUE
+// ==========================================
 function queueCloudSync(filename, data) {
   if (!isFirebaseReady()) return;
 
@@ -255,11 +365,13 @@ function queueCloudSync(filename, data) {
   const timer = setTimeout(async () => {
     cloudDebounceTimers.delete(timerKey);
     try {
-      const jsonStr = JSON.stringify(data, null, 2);
-      const remotePath = `data/${filename}`;
-      const ok = await uploadToCloud(remotePath, jsonStr);
-      if (ok) {
-        // Successfully synced to Firebase Cloud Storage
+      const key = filename.replace(/\.json$/, '');
+      if (isRtdbReady()) {
+        await saveToRtdb(key, data);
+      } else if (isFirebaseStorageReady()) {
+        const jsonStr = JSON.stringify(data, null, 2);
+        const remotePath = `data/${filename}`;
+        await uploadToGcs(remotePath, jsonStr);
       }
     } catch (e) {
       console.warn(`[Storage] Debounced upload for ${filename} caught exception:`, e.message);
@@ -270,7 +382,7 @@ function queueCloudSync(filename, data) {
 }
 
 // ==========================================
-// 5. LOCAL STORAGE & SEEDING HELPERS
+// 8. LOCAL STORAGE & SEEDING HELPERS
 // ==========================================
 function readJsonFile(filePath, defaultValue) {
   try {
@@ -316,7 +428,7 @@ function seedFileIfMissing(targetPath, fallbackData) {
 }
 
 // ==========================================
-// 6. INITIALIZATION & COLD-START SYNC
+// 9. INITIALIZATION & COLD-START SYNC
 // ==========================================
 export function initStorage() {
   if (memoryState.isInitialized) return;
@@ -338,7 +450,7 @@ export function initStorage() {
   seedFileIfMissing(FILES_CACHE_FILE, {});
 
   // 2. Load into In-Memory State for instant sub-millisecond access
-  memoryState.galleries = readJsonFile(GALLERIES_FILE, []);
+  memoryState.galleries = normalizeArray(readJsonFile(GALLERIES_FILE, []));
   memoryState.settings = readJsonFile(SETTINGS_FILE, {
     editor_key: DEFAULT_EDITOR_KEY,
     whatsapp: DEFAULT_WA,
@@ -347,75 +459,126 @@ export function initStorage() {
   memoryState.filesCache = readJsonFile(FILES_CACHE_FILE, {});
   memoryState.isInitialized = true;
 
-  // 3. Status Reporting
-  if (isFirebaseReady()) {
+  // 3. Status Reporting & Cold Start
+  if (isRtdbReady()) {
+    const cfg = getFirebaseConfig();
+    const authType = cfg.hasServiceAccount ? 'Service Account (Private Key)' : (cfg.hasSecret ? 'Database Secret' : 'Public/Test Mode');
+    console.log(`[Storage] Firebase Realtime Database is READY (Auth: ${authType}, URL: ${cfg.rtdbUrl})`);
+    syncFromCloud().catch(err => {
+      console.warn('[Storage] Background RTDB cold-start sync warning:', err.message);
+    });
+  } else if (isFirebaseStorageReady()) {
     const cfg = getFirebaseConfig();
     console.log(`[Storage] Firebase Cloud Storage is READY (Bucket: ${cfg.bucket})`);
-    // Pull latest data from Firebase bucket in background (Cold-Start Sync)
     syncFromCloud().catch(err => {
-      console.warn('[Storage] Background cold-start sync warning:', err.message);
+      console.warn('[Storage] Background GCS cold-start sync warning:', err.message);
     });
   } else {
-    console.log(`[Storage] Firebase credentials not configured. Running in Local Storage (${IS_VERCEL ? '/tmp' : './data'}) Fallback mode.`);
+    console.log(`[Storage] Cloud database not configured. Running in Local Storage (${IS_VERCEL ? '/tmp' : './data'}) Fallback mode.`);
   }
 }
 
-// Asynchronously sync from Cloud Storage at boot time
+// Asynchronously sync from cloud backend at boot time
 export async function syncFromCloud() {
   if (!isFirebaseReady()) return false;
 
   try {
-    // 1. Galleries Sync
-    const cloudGalleriesText = await downloadFromCloud('data/galleries.json');
-    if (cloudGalleriesText) {
-      try {
-        const parsed = JSON.parse(cloudGalleriesText);
-        if (Array.isArray(parsed)) {
-          memoryState.galleries = parsed;
-          writeJsonFile(GALLERIES_FILE, parsed);
-          console.log(`[Storage] Successfully synced ${parsed.length} galleries from Firebase Cloud Storage`);
+    // --------------------------------------------------
+    // Priority 1: Firebase Realtime Database (RTDB)
+    // --------------------------------------------------
+    if (isRtdbReady()) {
+      // 1. Galleries Sync
+      const rtdbGalleries = await fetchFromRtdb('galleries');
+      if (rtdbGalleries !== null) {
+        const parsed = normalizeArray(rtdbGalleries);
+        memoryState.galleries = parsed;
+        writeJsonFile(GALLERIES_FILE, parsed);
+        console.log(`[Storage] Successfully synced ${parsed.length} galleries from Firebase Realtime Database`);
+      } else {
+        // Cold-start seed to cloud if remote is empty
+        if (memoryState.galleries && memoryState.galleries.length > 0) {
+          queueCloudSync('galleries.json', memoryState.galleries);
         }
-      } catch (e) {
-        console.warn('[Storage] Failed to parse cloud galleries JSON:', e.message);
       }
-    } else {
-      // If bucket has no galleries.json yet, seed bucket from local template
-      if (memoryState.galleries && memoryState.galleries.length > 0) {
-        queueCloudSync('galleries.json', memoryState.galleries);
+
+      // 2. Settings Sync
+      const rtdbSettings = await fetchFromRtdb('settings');
+      if (rtdbSettings !== null && typeof rtdbSettings === 'object') {
+        memoryState.settings = { ...(memoryState.settings || {}), ...rtdbSettings };
+        writeJsonFile(SETTINGS_FILE, memoryState.settings);
+      } else {
+        if (memoryState.settings) {
+          queueCloudSync('settings.json', memoryState.settings);
+        }
       }
+
+      // 3. Files Cache Sync
+      const rtdbCache = await fetchFromRtdb('files_cache');
+      if (rtdbCache !== null && typeof rtdbCache === 'object') {
+        memoryState.filesCache = { ...(memoryState.filesCache || {}), ...rtdbCache };
+        writeJsonFile(FILES_CACHE_FILE, memoryState.filesCache);
+      }
+
+      return true;
     }
 
-    // 2. Settings Sync
-    const cloudSettingsText = await downloadFromCloud('data/settings.json');
-    if (cloudSettingsText) {
-      try {
-        const parsed = JSON.parse(cloudSettingsText);
-        if (parsed && typeof parsed === 'object') {
-          memoryState.settings = parsed;
-          writeJsonFile(SETTINGS_FILE, parsed);
+    // --------------------------------------------------
+    // Priority 2: Firebase Cloud Storage (GCS)
+    // --------------------------------------------------
+    if (isFirebaseStorageReady()) {
+      // 1. Galleries Sync
+      const cloudGalleriesText = await downloadFromGcs('data/galleries.json');
+      if (cloudGalleriesText) {
+        try {
+          const parsed = JSON.parse(cloudGalleriesText);
+          if (Array.isArray(parsed)) {
+            memoryState.galleries = normalizeArray(parsed);
+            writeJsonFile(GALLERIES_FILE, memoryState.galleries);
+            console.log(`[Storage] Successfully synced ${memoryState.galleries.length} galleries from Firebase Cloud Storage`);
+          }
+        } catch (e) {
+          console.warn('[Storage] Failed to parse cloud galleries JSON:', e.message);
         }
-      } catch (e) {
-        console.warn('[Storage] Failed to parse cloud settings JSON:', e.message);
+      } else {
+        if (memoryState.galleries && memoryState.galleries.length > 0) {
+          queueCloudSync('galleries.json', memoryState.galleries);
+        }
       }
-    } else {
-      if (memoryState.settings) {
-        queueCloudSync('settings.json', memoryState.settings);
+
+      // 2. Settings Sync
+      const cloudSettingsText = await downloadFromGcs('data/settings.json');
+      if (cloudSettingsText) {
+        try {
+          const parsed = JSON.parse(cloudSettingsText);
+          if (parsed && typeof parsed === 'object') {
+            memoryState.settings = parsed;
+            writeJsonFile(SETTINGS_FILE, parsed);
+          }
+        } catch (e) {
+          console.warn('[Storage] Failed to parse cloud settings JSON:', e.message);
+        }
+      } else {
+        if (memoryState.settings) {
+          queueCloudSync('settings.json', memoryState.settings);
+        }
       }
+
+      // 3. Files Cache Sync
+      const cloudCacheText = await downloadFromGcs('data/files_cache.json');
+      if (cloudCacheText) {
+        try {
+          const parsed = JSON.parse(cloudCacheText);
+          if (parsed && typeof parsed === 'object') {
+            memoryState.filesCache = parsed;
+            writeJsonFile(FILES_CACHE_FILE, parsed);
+          }
+        } catch (e) {}
+      }
+
+      return true;
     }
 
-    // 3. Files Cache Sync
-    const cloudCacheText = await downloadFromCloud('data/files_cache.json');
-    if (cloudCacheText) {
-      try {
-        const parsed = JSON.parse(cloudCacheText);
-        if (parsed && typeof parsed === 'object') {
-          memoryState.filesCache = parsed;
-          writeJsonFile(FILES_CACHE_FILE, parsed);
-        }
-      } catch (e) {}
-    }
-
-    return true;
+    return false;
   } catch (err) {
     console.warn('[Storage] syncFromCloud error:', err.message);
     return false;
@@ -423,7 +586,7 @@ export async function syncFromCloud() {
 }
 
 // ==========================================
-// 7. PUBLIC STORAGE METHODS (IN-MEMORY + CLOUD)
+// 10. PUBLIC STORAGE METHODS (IN-MEMORY + CLOUD)
 // ==========================================
 export function getGalleries() {
   if (!memoryState.isInitialized) initStorage();
@@ -432,13 +595,13 @@ export function getGalleries() {
 
 export function saveGalleries(galleries) {
   if (!memoryState.isInitialized) initStorage();
-  const valid = Array.isArray(galleries) ? galleries : [];
+  const valid = normalizeArray(galleries);
   memoryState.galleries = valid;
 
-  // 1. Write to local file /tmp immediately (instant response)
+  // 1. Write to local file immediately (< 1 ms response)
   writeJsonFile(GALLERIES_FILE, valid);
 
-  // 2. Queue debounced cloud upload (micro-batching)
+  // 2. Queue debounced cloud upload (micro-batching 2s debounce)
   queueCloudSync('galleries.json', valid);
 
   return true;
