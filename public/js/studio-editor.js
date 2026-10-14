@@ -97,6 +97,10 @@
       <div id="st-reviewDlg-backdrop" class="st-dialog-backdrop"></div>
       <div id="st-reviewDlg" class="st-dialog" style="max-width: 490px;"></div>
 
+      <!-- Dialog Unduh Batch Foto Langsung (Direct CDN) -->
+      <div id="st-downloadDlg-backdrop" class="st-dialog-backdrop"></div>
+      <div id="st-downloadDlg" class="st-dialog" style="max-width: 520px;"></div>
+
       <!-- Dialog Atur Galeri -->
       <div id="st-manageDlg-backdrop" class="st-dialog-backdrop"></div>
       <div id="st-manageDlg" class="st-dialog">
@@ -594,6 +598,173 @@
     return list;
   }
 
+  // --- Direct-to-Client Batch Photo Downloader (0% Server RAM) ---
+  let downloadAbortCtrl = null;
+
+  function openBatchDownloadDialog(galleryId, initialMode = 'zip') {
+    const g = galleries.find(x => String(x.id) === String(galleryId));
+    const title = g?.title || $('st-detailTitle').textContent || 'Galeri';
+    const note = g?.note || '';
+    const photosToDownload = [...currentPhotos];
+
+    if (!photosToDownload.length) {
+      toast('Belum ada foto yang dipilih pada galeri ini.', 'warning');
+      return;
+    }
+
+    const dlg = $('st-downloadDlg');
+    if (!dlg) return;
+
+    dlg.innerHTML = `
+      <h2 style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+        <span>📦</span> <span>Unduh Foto: ${esc(title)}</span>
+      </h2>
+      <p class="st-text-muted" style="font-size: 13.5px; margin-bottom: 12px;">
+        Mengunduh foto langsung dari server <strong>Google Drive CDN</strong> ke perangkat Anda (0% beban RAM & bandwidth server).
+      </p>
+
+      <div class="st-download-stat-grid">
+        <div class="st-download-stat-card">
+          <span class="st-download-stat-label">Total Foto</span>
+          <span class="st-download-stat-val">${photosToDownload.length} Foto</span>
+        </div>
+        <div class="st-download-stat-card">
+          <span class="st-download-stat-label">Kualitas</span>
+          <span class="st-download-stat-val">Resolusi Penuh (Original)</span>
+        </div>
+        <div class="st-download-stat-card">
+          <span class="st-download-stat-label">Metode</span>
+          <span class="st-download-stat-val" style="color: #49aa19;">Direct to Client ⚡</span>
+        </div>
+      </div>
+
+      <div id="st-dlProgressSection" class="st-progress-wrap" style="display: none;">
+        <div class="st-progress-status-line">
+          <span id="st-dlStatusMain">Menyiapkan...</span>
+          <span id="st-dlStatusPercent" style="font-weight: 700;">0%</span>
+        </div>
+        <div class="st-progress-bar">
+          <div class="st-progress-fill st-progress-fill--active" id="st-dlProgressFill"></div>
+        </div>
+        <div class="st-progress-subline" id="st-dlStatusSub">Menghubungkan ke Google CDN...</div>
+      </div>
+
+      <div id="st-dlActions" style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap;">
+        <button type="button" class="st-btn st-btn-outline" id="st-dlCloseBtn">Batal</button>
+        <button type="button" class="st-btn st-btn-outline" id="st-dlDirectBtn">📥 Unduh Satu per Satu</button>
+        <button type="button" class="st-btn st-btn-primary" id="st-dlStartZipBtn">📦 Mulai Unduh ZIP</button>
+      </div>
+    `;
+
+    openDialog('st-downloadDlg');
+
+    const closeBtn = $('st-dlCloseBtn');
+    const startZipBtn = $('st-dlStartZipBtn');
+    const directBtn = $('st-dlDirectBtn');
+    const progressSection = $('st-dlProgressSection');
+    const statusMain = $('st-dlStatusMain');
+    const statusPercent = $('st-dlStatusPercent');
+    const statusSub = $('st-dlStatusSub');
+    const progressFill = $('st-dlProgressFill');
+
+    let isDownloading = false;
+
+    const cancelOrClose = () => {
+      if (isDownloading && downloadAbortCtrl) {
+        downloadAbortCtrl.abort();
+        toast('Pengunduhan dibatalkan');
+      }
+      closeDialog('st-downloadDlg');
+    };
+
+    closeBtn.onclick = cancelOrClose;
+
+    const runDownload = async (isZip) => {
+      if (!window.StudioZip) {
+        toast('Modul pengunduh ZIP belum siap. Silakan muat ulang halaman.', 'error');
+        return;
+      }
+
+      isDownloading = true;
+      downloadAbortCtrl = new AbortController();
+      progressSection.style.display = 'flex';
+      startZipBtn.style.display = 'none';
+      directBtn.style.display = 'none';
+      closeBtn.textContent = '✕ Batalkan';
+      closeBtn.classList.remove('st-btn-outline');
+      closeBtn.classList.add('st-btn-secondary');
+
+      try {
+        if (isZip) {
+          await window.StudioZip.downloadGalleryZip({
+            title,
+            note,
+            photos: photosToDownload,
+            signal: downloadAbortCtrl.signal,
+            concurrency: 3,
+            onProgress: (p) => {
+              progressFill.style.width = `${p.percent}%`;
+              statusPercent.textContent = `${p.percent}%`;
+              if (p.phase === 'downloading') {
+                statusMain.textContent = `Mengunduh foto ${p.current} dari ${p.total}`;
+                const sizeStr = p.loadedBytes ? ` (${window.StudioZip.formatBytes(p.loadedBytes)})` : '';
+                statusSub.textContent = `Berkas: ${esc(p.currentName)}${sizeStr}`;
+              } else if (p.phase === 'packing') {
+                statusMain.textContent = 'Mengompresi arsip ZIP di memori browser...';
+                statusSub.textContent = p.currentName || 'Hampir selesai';
+              } else if (p.phase === 'complete') {
+                statusMain.textContent = 'Pengunduhan Selesai! 🎉';
+                statusSub.textContent = p.currentName;
+                progressFill.classList.remove('st-progress-fill--active');
+              }
+            }
+          });
+          toast(`Berhasil mengunduh ${photosToDownload.length} foto dalam paket ZIP!`, 'success');
+        } else {
+          await window.StudioZip.downloadFilesDirect({
+            photos: photosToDownload,
+            signal: downloadAbortCtrl.signal,
+            delayMs: 350,
+            onProgress: (p) => {
+              progressFill.style.width = `${p.percent}%`;
+              statusPercent.textContent = `${p.percent}%`;
+              statusMain.textContent = `Mengunduh berkas ${p.current} dari ${p.total}`;
+              statusSub.textContent = p.currentName;
+            }
+          });
+          toast(`Berhasil memicu unduhan ${photosToDownload.length} foto!`, 'success');
+        }
+
+        closeBtn.textContent = 'Tutup';
+        closeBtn.classList.remove('st-btn-secondary');
+        closeBtn.classList.add('st-btn-primary');
+        isDownloading = false;
+        closeBtn.onclick = () => closeDialog('st-downloadDlg');
+      } catch (err) {
+        if (err.name === 'AbortError' || (err.message && err.message.includes('dibatalkan'))) {
+          statusMain.textContent = 'Pengunduhan Dibatalkan';
+          statusSub.textContent = 'Tidak ada berkas yang disimpan.';
+        } else {
+          toast(`Gagal mengunduh: ${err.message}`, 'error');
+          statusMain.textContent = 'Terjadi Kesalahan';
+          statusSub.textContent = err.message;
+        }
+        progressFill.style.backgroundColor = '#ff4d4f';
+        progressFill.classList.remove('st-progress-fill--active');
+        closeBtn.textContent = 'Tutup';
+        isDownloading = false;
+        closeBtn.onclick = () => closeDialog('st-downloadDlg');
+      }
+    };
+
+    startZipBtn.onclick = () => runDownload(true);
+    directBtn.onclick = () => runDownload(false);
+
+    if (initialMode === 'zip_auto') {
+      runDownload(true);
+    }
+  }
+
   function renderDetailData(id, data) {
     $('st-detailTitle').textContent = data.title;
     if ($('st-detailSyncInfo')) {
@@ -709,8 +880,15 @@
               📥 Ekspor ▾
             </button>
             <div class="st-dropdown-menu" id="st-exportDropdownMenu">
+              <button type="button" class="st-dropdown-item" id="st-ddDownloadZip" style="font-weight: 600;">
+                <span>📦 <strong>Unduh Seluruh Foto (ZIP)</strong></span>
+              </button>
+              <button type="button" class="st-dropdown-item" id="st-ddDownloadDirect">
+                <span>📥 Unduh Satu per Satu (Direct)</span>
+              </button>
+              <div class="st-dropdown-divider"></div>
               <a href="${currentCsvUrl}" download="pilihan_${esc(id)}.csv" class="st-dropdown-item" id="st-ddDownloadCsv">
-                <span>📥 Unduh File CSV</span>
+                <span>📄 Unduh File CSV</span>
               </a>
               <button type="button" class="st-dropdown-item" id="st-ddCopyNames">
                 <span>📋 Salin Nama File</span>
@@ -764,6 +942,18 @@
     // Ekspor dropdown triggers
     if ($('st-exportDropdownBtn')) {
       $('st-exportDropdownBtn').onclick = (e) => toggleDropdown('st-exportDropdownMenu', e);
+    }
+    if ($('st-ddDownloadZip')) {
+      $('st-ddDownloadZip').onclick = () => {
+        closeAllDropdowns();
+        openBatchDownloadDialog(id, 'zip');
+      };
+    }
+    if ($('st-ddDownloadDirect')) {
+      $('st-ddDownloadDirect').onclick = () => {
+        closeAllDropdowns();
+        openBatchDownloadDialog(id, 'direct');
+      };
     }
     if ($('st-ddDownloadCsv')) {
       $('st-ddDownloadCsv').onclick = () => closeAllDropdowns();

@@ -412,3 +412,88 @@
   color: var(--st-text-muted);
 }
 
+/* ==========================================
+   DIRECT-TO-CLIENT BATCH DOWNLOADER MODAL
+   ========================================== */
+.st-progress-wrap {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.st-progress-bar {
+  width: 100%;
+  height: 10px;
+  background: var(--st-bg-subtle);
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius-pill);
+  overflow: hidden;
+  position: relative;
+}
+
+.st-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #1677ff, #52c41a);
+  border-radius: var(--st-radius-pill);
+  transition: width 150ms ease-out;
+}
+
+.st-progress-fill--active {
+  background-size: 30px 30px;
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%, transparent);
+  animation: stProgressStripes 1s linear infinite;
+}
+
+@keyframes stProgressStripes {
+  from { background-position: 0 0; }
+  to { background-position: 30px 0; }
+}
+
+.st-progress-status-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--st-text);
+  font-weight: 500;
+}
+
+.st-progress-subline {
+  font-size: 12px;
+  color: var(--st-text-muted);
+  word-break: break-all;
+}
+
+.st-download-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.st-download-stat-card {
+  background: var(--st-bg-subtle);
+  border: 1px solid var(--st-border);
+  border-radius: var(--st-radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.st-download-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--st-text-muted);
+}
+
+.st-download-stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--st-text);
+}
+
+
