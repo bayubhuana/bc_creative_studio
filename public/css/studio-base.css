@@ -1,4 +1,5 @@
 /* studio-base.css */
+:root,
 .st-app {
   --st-accent-blue: #e60000; /* Copied from theme red, but named accent */
   --st-accent-blue-hover: #b30000;
@@ -15,19 +16,33 @@
   --st-radius-sm: 8px; --st-radius-md: 12px; --st-radius-lg: 16px; --st-radius-xl: 24px; --st-radius-pill: 999px;
   --st-dur-fast: 150ms; --st-dur-base: 250ms; --st-dur-slow: 500ms;
   --st-gutter: 16px;
+}
 
+@media (min-width: 900px) {
+  :root,
+  .st-app { --st-gutter: 32px; }
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--st-bg, #0a0a0a);
+  color: var(--st-text, #ffffff);
+  font-family: var(--st-font-sans);
+}
+
+.st-app {
   font-family: var(--st-font-sans);
   color: var(--st-text);
   background: var(--st-bg);
   min-height: 100vh;
   padding-bottom: 84px;
 }
-
-@media (min-width: 900px) {
-  .st-app { --st-gutter: 32px; }
-}
-
-.st-app * { box-sizing: border-box; }
 
 .st-container { width: min(100% - 2*var(--st-gutter), 1200px); margin-inline: auto; padding-top: var(--st-space-4); }
 .st-text-center { text-align: center; }
