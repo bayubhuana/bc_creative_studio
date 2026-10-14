@@ -4,149 +4,38 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
+import {
+  IS_VERCEL,
+  DATA_DIR,
+  CACHE_DIR,
+  GALLERIES_FILE,
+  SETTINGS_FILE,
+  FILES_CACHE_FILE,
+  initStorage,
+  getGalleries,
+  saveGalleries,
+  getSettings,
+  saveSettings,
+  getFilesCache,
+  saveFilesCache,
+  isFirebaseReady
+} from './storage.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ==========================================
 // 1. CONFIGURATION & ENVIRONMENT
 // ==========================================
-const IS_VERCEL = Boolean(process.env.VERCEL);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const GOOGLE_API_KEY = (process.env.GOOGLE_API_KEY || '').trim();
 const DEFAULT_EDITOR_KEY = (process.env.EDITOR_KEY || 'admin').trim();
 const DEFAULT_WA = (process.env.EDITOR_WA || '').trim();
 
-// On Vercel, the project root filesystem is read-only at runtime except for /tmp.
-const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'pilih-foto-data') : path.join(__dirname, 'data');
-const CACHE_DIR = IS_VERCEL ? path.join('/tmp', 'pilih-foto-cache') : path.join(__dirname, 'data', 'thumb-cache');
 const PUBLIC_DIR = [
   path.join(__dirname, 'public'),
   path.join(process.cwd(), 'public')
 ].find(p => fs.existsSync(p)) || path.join(__dirname, 'public');
-
-const GALLERIES_FILE = path.join(DATA_DIR, 'galleries.json');
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
-const FILES_CACHE_FILE = path.join(DATA_DIR, 'files_cache.json');
-
-// Ensure directories and initial seed files exist
-function initStorage() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-  }
-
-  // Seed galleries.json
-  if (!fs.existsSync(GALLERIES_FILE)) {
-    const seedCandidates = [
-      path.join(process.cwd(), 'data', 'galleries.json'),
-      path.join(__dirname, 'data', 'galleries.json'),
-      path.join(__dirname, '..', 'data', 'galleries.json')
-    ];
-    const seedPath = seedCandidates.find(p => fs.existsSync(p));
-    if (seedPath) {
-      try {
-        fs.copyFileSync(seedPath, GALLERIES_FILE);
-      } catch {
-        fs.writeFileSync(GALLERIES_FILE, '[]', 'utf8');
-      }
-    } else {
-      fs.writeFileSync(GALLERIES_FILE, '[]', 'utf8');
-    }
-  }
-
-  // Seed settings.json
-  if (!fs.existsSync(SETTINGS_FILE)) {
-    const seedCandidates = [
-      path.join(process.cwd(), 'data', 'settings.json'),
-      path.join(__dirname, 'data', 'settings.json'),
-      path.join(__dirname, '..', 'data', 'settings.json')
-    ];
-    const seedPath = seedCandidates.find(p => fs.existsSync(p));
-    if (seedPath) {
-      try {
-        fs.copyFileSync(seedPath, SETTINGS_FILE);
-      } catch {
-        const initSettings = {
-          editor_key: DEFAULT_EDITOR_KEY,
-          whatsapp: DEFAULT_WA,
-          include_octet_stream: false
-        };
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(initSettings, null, 2), 'utf8');
-      }
-    } else {
-      const initSettings = {
-        editor_key: DEFAULT_EDITOR_KEY,
-        whatsapp: DEFAULT_WA,
-        include_octet_stream: false
-      };
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(initSettings, null, 2), 'utf8');
-    }
-  }
-
-  // Seed files_cache.json
-  if (!fs.existsSync(FILES_CACHE_FILE)) {
-    fs.writeFileSync(FILES_CACHE_FILE, '{}', 'utf8');
-  }
-}
-
-initStorage();
-
-// ==========================================
-// 2. DATA STORAGE HELPERS
-// ==========================================
-function readJsonFile(filePath, defaultValue) {
-  try {
-    if (!fs.existsSync(filePath)) return defaultValue;
-    const content = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(content);
-  } catch (err) {
-    console.error(`[Data] Error reading ${filePath}:`, err.message);
-    return defaultValue;
-  }
-}
-
-function writeJsonFile(filePath, data) {
-  try {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-    return true;
-  } catch (err) {
-    console.error(`[Data] Error writing ${filePath}:`, err.message);
-    return false;
-  }
-}
-
-function getGalleries() {
-  return readJsonFile(GALLERIES_FILE, []);
-}
-
-function saveGalleries(galleries) {
-  return writeJsonFile(GALLERIES_FILE, galleries);
-}
-
-function getSettings() {
-  const current = readJsonFile(SETTINGS_FILE, {});
-  return {
-    editor_key: (current.editor_key && current.editor_key.trim()) ? current.editor_key.trim() : DEFAULT_EDITOR_KEY,
-    whatsapp: (current.whatsapp && current.whatsapp.trim()) ? current.whatsapp.trim() : DEFAULT_WA,
-    include_octet_stream: Boolean(current.include_octet_stream)
-  };
-}
-
-function saveSettings(settings) {
-  return writeJsonFile(SETTINGS_FILE, settings);
-}
-
-function getFilesCache() {
-  return readJsonFile(FILES_CACHE_FILE, {});
-}
-
-function saveFilesCache(cache) {
-  return writeJsonFile(FILES_CACHE_FILE, cache);
-}
 
 // In-memory memory-lock for thumbnail fetching to prevent stampedes
 const thumbnailLocks = new Map();

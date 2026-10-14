@@ -43,6 +43,18 @@
     return `https://wa.me/${gallery.editorWa}?text=${encodeURIComponent(teksWa)}`;
   }
 
+  function saveLocalDraft() {
+    const token = sessionStorage.getItem('st_token') || localStorage.getItem('st_token');
+    if (!token || isLocked) return;
+    try {
+      localStorage.setItem('st_draft_' + token, JSON.stringify({
+        ids: [...sel],
+        note: statusData.note || '',
+        updatedAt: Date.now()
+      }));
+    } catch (e) {}
+  }
+
   async function init() {
     const token = getUrlToken();
     if (!token) return renderError('Link tidak valid. Pastikan Anda membuka link lengkap yang diberikan oleh editor.');
@@ -56,6 +68,26 @@
       };
       sel = new Set(statusData.selectedIds);
       isLocked = statusData.status === 'submitted';
+
+      // Lapisan 3: LocalStorage Draft Auto-Recovery
+      if (!isLocked && token) {
+        try {
+          const rawDraft = localStorage.getItem('st_draft_' + token);
+          if (rawDraft) {
+            const draft = JSON.parse(rawDraft);
+            if (draft && Array.isArray(draft.ids) && draft.ids.length > 0 && sel.size === 0) {
+              draft.ids.forEach(id => sel.add(id));
+              if (draft.note && !statusData.note) {
+                statusData.note = draft.note;
+              }
+              dirtyIds = true;
+              if (draft.note) dirtyNote = true;
+              setTimeout(() => flushAutoSave(false), 800);
+              toast('Draft pilihan foto berhasil dipulihkan dari perangkat Anda.', 'info');
+            }
+          }
+        } catch (e) {}
+      }
 
       renderApp();
       await loadPhotos();
@@ -251,6 +283,7 @@
   function scheduleSaveIds() {
     if (isLocked) return;
     statusData.selectedIds = [...sel];
+    saveLocalDraft();
     dirtyIds = true;
     setSaveStatus('Menyimpan…', 'st-saving');
     if (idSaveTimer) clearTimeout(idSaveTimer);
@@ -259,6 +292,7 @@
 
   function scheduleSaveNote() {
     if (isLocked) return;
+    saveLocalDraft();
     dirtyNote = true;
     setSaveStatus('Menyimpan…', 'st-saving');
     if (noteSaveTimer) clearTimeout(noteSaveTimer);
@@ -333,11 +367,20 @@
 
   function getImageCandidates(pItem, isLg = false) {
     const list = [];
+    const sz = isLg ? 1600 : 400;
+
+    // Pilar 2: Direct-to-CDN priority (Google Drive CDN & lh3 googleusercontent)
+    if (!String(pItem.id).startsWith('demo')) {
+      const gThumb = `https://drive.google.com/thumbnail?id=${encodeURIComponent(pItem.id)}&sz=w${sz}`;
+      const lhThumb = `https://lh3.googleusercontent.com/d/${encodeURIComponent(pItem.id)}=w${sz}`;
+      list.push(gThumb, lhThumb);
+    }
+
     const main = isLg ? (pItem.srcLg || pItem.src) : pItem.src;
     const fallback = isLg ? (pItem.fallbackSrcLg || pItem.fallbackSrc) : pItem.fallbackSrc;
     const fallbacksList = isLg ? (pItem.fallbacksLg || pItem.fallbacks) : pItem.fallbacks;
 
-    if (main) list.push(main);
+    if (main && !list.includes(main)) list.push(main);
     if (Array.isArray(fallbacksList)) {
       fallbacksList.forEach(u => {
         if (u && !list.includes(u)) list.push(u);
@@ -345,11 +388,6 @@
     }
     if (fallback && !list.includes(fallback)) list.push(fallback);
 
-    if (!String(pItem.id).startsWith('demo')) {
-      const sz = isLg ? 1600 : 400;
-      const gThumb = `https://drive.google.com/thumbnail?id=${encodeURIComponent(pItem.id)}&sz=w${sz}`;
-      if (!list.includes(gThumb)) list.push(gThumb);
-    }
     return list;
   }
 
@@ -398,38 +436,120 @@
     card.prepend(img);
   }
 
-  function renderSkeleton(forceResultPhotos = null) {
-    const isResult = Array.isArray(forceResultPhotos);
-    const list = isResult ? forceResultPhotos : photos;
-    const grid = $('st-grid');
-    grid.innerHTML = '';
-    cardMap.clear();
+  // Pilar 1: Progressive DOM Chunking (Virtual Grid dengan Sentinel IntersectionObserver)
+  const CHUNK_SIZE = 40;
+  let renderedCount = 0;
+  let activeRenderList = [];
+  let isCurrentResultView = false;
+  let gridObserver = null;
 
+  function renderNextChunk() {
+    if (!activeRenderList || renderedCount >= activeRenderList.length) {
+      removeSentinel();
+      return;
+    }
+
+    const grid = $('st-grid');
+    if (!grid) return;
+
+    const nextBatch = activeRenderList.slice(renderedCount, renderedCount + CHUNK_SIZE);
     const frag = document.createDocumentFragment();
-    list.forEach((p, i) => {
+
+    nextBatch.forEach((p, idx) => {
+      const overallIndex = renderedCount + idx;
       const c = document.createElement('div');
-      c.className = 'st-photo-card' + (!isResult && sel.has(p.id) ? ' st-selected' : '');
-      c.dataset.i = i;
+      c.className = 'st-photo-card' + (!isCurrentResultView && sel.has(p.id) ? ' st-selected' : '');
+      c.dataset.i = overallIndex;
       c.dataset.id = p.id;
       c.innerHTML = `
         <div class="st-img-retry-wrap">
           <span>Gagal memuat pratinjau</span>
-          <button type="button" class="st-retry-img-btn" data-i="${i}">↻ Muat ulang</button>
+          <button type="button" class="st-retry-img-btn" data-i="${overallIndex}">↻ Muat ulang</button>
         </div>
         <div class="st-photo-card__overlay"></div>
-        ${isResult ? '' : '<div class="st-badge-check">✓</div>'}
+        ${isCurrentResultView ? '' : '<div class="st-badge-check">✓</div>'}
         <div class="st-badge-name" title="${esc(p.name)}">${esc(p.name)}</div>
         <button class="st-zoom-btn" type="button" aria-label="Perbesar" tabindex="-1">⤢</button>
       `;
-      attachCardImage(c, p, i);
-      if (!isResult) {
+      attachCardImage(c, p, overallIndex);
+      if (!isCurrentResultView) {
         cardMap.set(p.id, c);
       }
       frag.appendChild(c);
     });
 
-    grid.appendChild(frag);
-    if (!isResult) {
+    renderedCount += nextBatch.length;
+
+    const sentinel = $('st-grid-sentinel');
+    if (sentinel) {
+      grid.insertBefore(frag, sentinel);
+    } else {
+      grid.appendChild(frag);
+    }
+
+    if (renderedCount >= activeRenderList.length) {
+      removeSentinel();
+    }
+  }
+
+  function setupSentinel() {
+    removeSentinel();
+    if (renderedCount >= activeRenderList.length) return;
+
+    const grid = $('st-grid');
+    if (!grid) return;
+
+    const sentinel = document.createElement('div');
+    sentinel.id = 'st-grid-sentinel';
+    sentinel.style.width = '100%';
+    sentinel.style.height = '60px';
+    sentinel.style.gridColumn = '1 / -1';
+    sentinel.style.display = 'flex';
+    sentinel.style.alignItems = 'center';
+    sentinel.style.justifyContent = 'center';
+    sentinel.style.color = 'var(--st-text-muted)';
+    sentinel.style.fontSize = '14px';
+    sentinel.textContent = 'Memuat foto lainnya...';
+    grid.appendChild(sentinel);
+
+    if ('IntersectionObserver' in window) {
+      gridObserver = new IntersectionObserver((entries) => {
+        if (entries[0] && entries[0].isIntersecting) {
+          renderNextChunk();
+        }
+      }, { rootMargin: '400px' });
+      gridObserver.observe(sentinel);
+    } else {
+      while (renderedCount < activeRenderList.length) {
+        renderNextChunk();
+      }
+    }
+  }
+
+  function removeSentinel() {
+    if (gridObserver) {
+      gridObserver.disconnect();
+      gridObserver = null;
+    }
+    const sentinel = $('st-grid-sentinel');
+    if (sentinel) sentinel.remove();
+  }
+
+  function renderSkeleton(forceResultPhotos = null) {
+    isCurrentResultView = Array.isArray(forceResultPhotos);
+    activeRenderList = isCurrentResultView ? forceResultPhotos : photos;
+    const grid = $('st-grid');
+    grid.innerHTML = '';
+    cardMap.clear();
+    renderedCount = 0;
+
+    renderNextChunk();
+
+    if (renderedCount < activeRenderList.length) {
+      setupSentinel();
+    }
+
+    if (!isCurrentResultView) {
       checkStatus();
     }
     updateOpacity();
@@ -694,6 +814,10 @@
         statusData.status = 'submitted';
         statusData.note = note;
         isLocked = true;
+        const curToken = sessionStorage.getItem('st_token') || localStorage.getItem('st_token');
+        if (curToken) {
+          try { localStorage.removeItem('st_draft_' + curToken); } catch (e) {}
+        }
         setSaveStatus('Terkirim ✓', 'st-saved');
         checkStatus();
         updateOpacity();

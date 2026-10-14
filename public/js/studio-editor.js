@@ -497,11 +497,20 @@
   // --- Detail View (B7, B9, D8, D9, D10) ---
   function getImageCandidates(pItem, isLg = false) {
     const list = [];
+    const sz = isLg ? 1600 : 400;
+
+    // Direct-to-CDN priority
+    if (!String(pItem.id).startsWith('demo')) {
+      const gThumb = `https://drive.google.com/thumbnail?id=${encodeURIComponent(pItem.id)}&sz=w${sz}`;
+      const lhThumb = `https://lh3.googleusercontent.com/d/${encodeURIComponent(pItem.id)}=w${sz}`;
+      list.push(gThumb, lhThumb);
+    }
+
     const main = isLg ? (pItem.srcLg || pItem.src) : pItem.src;
     const fallback = isLg ? (pItem.fallbackSrcLg || pItem.fallbackSrc) : pItem.fallbackSrc;
     const fallbacksList = isLg ? (pItem.fallbacksLg || pItem.fallbacks) : pItem.fallbacks;
 
-    if (main) list.push(main);
+    if (main && !list.includes(main)) list.push(main);
     if (Array.isArray(fallbacksList)) {
       fallbacksList.forEach(u => {
         if (u && !list.includes(u)) list.push(u);
@@ -509,11 +518,6 @@
     }
     if (fallback && !list.includes(fallback)) list.push(fallback);
 
-    if (!String(pItem.id).startsWith('demo')) {
-      const sz = isLg ? 1600 : 400;
-      const gThumb = `https://drive.google.com/thumbnail?id=${encodeURIComponent(pItem.id)}&sz=w${sz}`;
-      if (!list.includes(gThumb)) list.push(gThumb);
-    }
     return list;
   }
 
@@ -599,72 +603,142 @@
     $('st-copyCsvBtn').onclick = () => copyText(csv, 'Data CSV disalin!');
 
     const gridEl = $('st-editorGrid');
-    const frag = document.createDocumentFragment();
+    gridEl.innerHTML = '';
 
-    currentPhotos.forEach((p, i) => {
-      const card = document.createElement('div');
-      card.className = 'st-photo-card';
-      card.dataset.i = i;
-      card.tabIndex = 0;
+    const EDITOR_CHUNK_SIZE = 40;
+    let editorRenderedCount = 0;
+    let editorObserver = null;
 
-      const retryWrap = document.createElement('div');
-      retryWrap.className = 'st-img-retry-wrap';
-      retryWrap.innerHTML = `<span>Gagal memuat pratinjau</span><button type="button" class="st-retry-img-btn" data-i="${i}">↻ Muat ulang</button>`;
+    function renderNextEditorChunk() {
+      if (editorRenderedCount >= currentPhotos.length) {
+        removeEditorSentinel();
+        return;
+      }
+      const nextBatch = currentPhotos.slice(editorRenderedCount, editorRenderedCount + EDITOR_CHUNK_SIZE);
+      const frag = document.createDocumentFragment();
 
-      const candidates = getImageCandidates(p, false);
-      const img = document.createElement('img');
-      img.width = 400;
-      img.height = 400;
-      img.referrerPolicy = 'no-referrer';
-      img.alt = p.name || '(nama belum tersedia)';
-      img.loading = i < 8 ? 'eager' : 'lazy';
-      img.decoding = 'async';
+      nextBatch.forEach((p, idx) => {
+        const i = editorRenderedCount + idx;
+        const card = document.createElement('div');
+        card.className = 'st-photo-card';
+        card.dataset.i = i;
+        card.tabIndex = 0;
 
-      let attempt = 0;
-      img.onload = () => {
-        card.classList.remove('st-img-error');
-        card.classList.add('st-img-loaded');
-      };
-      img.onerror = () => {
-        attempt++;
-        if (attempt < candidates.length) {
-          img.src = candidates[attempt];
-        } else {
-          card.classList.add('st-img-error');
+        const retryWrap = document.createElement('div');
+        retryWrap.className = 'st-img-retry-wrap';
+        retryWrap.innerHTML = `<span>Gagal memuat pratinjau</span><button type="button" class="st-retry-img-btn" data-i="${i}">↻ Muat ulang</button>`;
+
+        const candidates = getImageCandidates(p, false);
+        const img = document.createElement('img');
+        img.width = 400;
+        img.height = 400;
+        img.referrerPolicy = 'no-referrer';
+        img.alt = p.name || '(nama belum tersedia)';
+        img.loading = i < 8 ? 'eager' : 'lazy';
+        img.decoding = 'async';
+
+        let attempt = 0;
+        img.onload = () => {
+          card.classList.remove('st-img-error');
+          card.classList.add('st-img-loaded');
+        };
+        img.onerror = () => {
+          attempt++;
+          if (attempt < candidates.length) {
+            img.src = candidates[attempt];
+          } else {
+            card.classList.add('st-img-error');
+          }
+        };
+        img.src = candidates[0] || p.src;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'st-photo-card__overlay';
+        overlay.style.opacity = '1';
+
+        const displayLabel = (!p.nameMissing && p.name) ? p.name : '(nama belum tersedia)';
+        const badgeName = document.createElement('div');
+        badgeName.className = 'st-badge-name' + ((p.nameMissing || !p.name) ? ' st-badge-name--missing' : '');
+        badgeName.style.opacity = '1';
+        badgeName.style.bottom = '8px';
+        badgeName.title = displayLabel;
+        badgeName.textContent = displayLabel;
+
+        const zoomBtn = document.createElement('button');
+        zoomBtn.type = 'button';
+        zoomBtn.className = 'st-zoom-btn';
+        zoomBtn.setAttribute('aria-label', 'Perbesar');
+        zoomBtn.tabIndex = -1;
+        zoomBtn.textContent = '⤢';
+
+        card.append(img, retryWrap, overlay, badgeName, zoomBtn);
+        card.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openLb(i);
+          }
+        };
+        frag.appendChild(card);
+      });
+
+      editorRenderedCount += nextBatch.length;
+
+      const sentinel = $('st-editor-grid-sentinel');
+      if (sentinel) {
+        gridEl.insertBefore(frag, sentinel);
+      } else {
+        gridEl.appendChild(frag);
+      }
+
+      if (editorRenderedCount >= currentPhotos.length) {
+        removeEditorSentinel();
+      }
+    }
+
+    function setupEditorSentinel() {
+      removeEditorSentinel();
+      if (editorRenderedCount >= currentPhotos.length) return;
+
+      const sentinel = document.createElement('div');
+      sentinel.id = 'st-editor-grid-sentinel';
+      sentinel.style.width = '100%';
+      sentinel.style.height = '50px';
+      sentinel.style.gridColumn = '1 / -1';
+      sentinel.style.display = 'flex';
+      sentinel.style.alignItems = 'center';
+      sentinel.style.justifyContent = 'center';
+      sentinel.style.color = 'var(--st-text-muted)';
+      sentinel.style.fontSize = '13px';
+      sentinel.textContent = 'Memuat foto lainnya...';
+      gridEl.appendChild(sentinel);
+
+      if ('IntersectionObserver' in window) {
+        editorObserver = new IntersectionObserver((entries) => {
+          if (entries[0] && entries[0].isIntersecting) {
+            renderNextEditorChunk();
+          }
+        }, { rootMargin: '300px' });
+        editorObserver.observe(sentinel);
+      } else {
+        while (editorRenderedCount < currentPhotos.length) {
+          renderNextEditorChunk();
         }
-      };
-      img.src = candidates[0] || p.src;
+      }
+    }
 
-      const overlay = document.createElement('div');
-      overlay.className = 'st-photo-card__overlay';
-      overlay.style.opacity = '1';
+    function removeEditorSentinel() {
+      if (editorObserver) {
+        editorObserver.disconnect();
+        editorObserver = null;
+      }
+      const sentinel = $('st-editor-grid-sentinel');
+      if (sentinel) sentinel.remove();
+    }
 
-      const displayLabel = (!p.nameMissing && p.name) ? p.name : '(nama belum tersedia)';
-      const badgeName = document.createElement('div');
-      badgeName.className = 'st-badge-name' + ((p.nameMissing || !p.name) ? ' st-badge-name--missing' : '');
-      badgeName.style.opacity = '1';
-      badgeName.style.bottom = '8px';
-      badgeName.title = displayLabel;
-      badgeName.textContent = displayLabel;
-
-      const zoomBtn = document.createElement('button');
-      zoomBtn.type = 'button';
-      zoomBtn.className = 'st-zoom-btn';
-      zoomBtn.setAttribute('aria-label', 'Perbesar');
-      zoomBtn.tabIndex = -1;
-      zoomBtn.textContent = '⤢';
-
-      card.append(img, retryWrap, overlay, badgeName, zoomBtn);
-      card.onkeydown = (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          openLb(i);
-        }
-      };
-      frag.appendChild(card);
-    });
-
-    gridEl.appendChild(frag);
+    renderNextEditorChunk();
+    if (editorRenderedCount < currentPhotos.length) {
+      setupEditorSentinel();
+    }
     gridEl.onclick = (e) => {
       const retryBtn = e.target.closest('.st-retry-img-btn');
       if (retryBtn) {
