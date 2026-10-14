@@ -1,7 +1,10 @@
 import { handleRequest } from '../server.js';
+import { ensureStorageReady } from '../storage.js';
 
 export default async function handler(req, res) {
   try {
+    // Ensure cloud sync completes before responding (critical for Vercel Serverless cold starts)
+    await ensureStorageReady();
     return await handleRequest(req, res);
   } catch (err) {
     console.error('[Vercel Handler Error]:', err);

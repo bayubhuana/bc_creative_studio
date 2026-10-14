@@ -1,3 +1,10 @@
+// Automatically load .env file if available (Node 20+) so users don't need --env-file flag
+if (typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile();
+  } catch {}
+}
+
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -9,7 +16,7 @@ const __dirname = path.dirname(__filename);
 // ==========================================
 // 1. ENVIRONMENT & DIRECTORY CONFIGURATION
 // ==========================================
-export const IS_VERCEL = Boolean(process.env.VERCEL);
+export const IS_VERCEL = Boolean(process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_REGION);
 export const DATA_DIR = IS_VERCEL ? path.join('/tmp', 'pilih-foto-data') : path.join(__dirname, 'data');
 export const CACHE_DIR = IS_VERCEL ? path.join('/tmp', 'pilih-foto-cache') : path.join(__dirname, 'data', 'thumb-cache');
 
@@ -25,10 +32,13 @@ const memoryState = {
   galleries: null,
   settings: null,
   filesCache: null,
-  isInitialized: false
+  isInitialized: false,
+  isCloudSynced: false
 };
 
-// Micro-batching debounce timers for cloud uploads
+let initPromise = null;
+
+// Micro-batching debounce timers for cloud uploads (used on non-serverless)
 const cloudDebounceTimers = new Map();
 const DEBOUNCE_DELAY_MS = 2000;
 
@@ -88,6 +98,8 @@ export function getFirebaseConfig() {
     }
 
     if (privateKey) {
+      // Clean up surrounding quotes from Vercel environment dashboard
+      privateKey = privateKey.trim().replace(/^["']|["']$/g, '').trim();
       privateKey = privateKey.replace(/\\n/g, '\n');
     }
 
@@ -206,30 +218,27 @@ async function fetchFromRtdb(key) {
   if (!cfg || !cfg.isRtdb) return null;
 
   try {
-    let url = `${cfg.rtdbUrl}/data/${encodeURIComponent(key)}.json`;
-    const headers = {};
+    const token = cfg.hasServiceAccount ? await getGoogleAccessToken(cfg) : null;
+    const authQuery = (!token && cfg.hasSecret) ? `?auth=${encodeURIComponent(cfg.databaseSecret)}` : '';
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-    if (cfg.hasServiceAccount) {
-      const token = await getGoogleAccessToken(cfg);
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      } else if (cfg.hasSecret) {
-        url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
-      }
-    } else if (cfg.hasSecret) {
-      url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
+    // 1. Check root key (e.g. /galleries.json)
+    const rootUrl = `${cfg.rtdbUrl}/${encodeURIComponent(key)}.json${authQuery}`;
+    const rootResp = await fetch(rootUrl, { headers, signal: AbortSignal.timeout(5000) });
+    if (rootResp.ok) {
+      const rootData = await rootResp.json();
+      if (rootData !== null) return rootData;
     }
 
-    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(5000) });
-    if (resp.status === 404) return null;
-    if (!resp.ok) {
-      console.warn(`[Storage] RTDB GET /data/${key}.json returned HTTP ${resp.status}`);
-      return null;
+    // 2. Fallback check for nested /data/<key>.json
+    const nestedUrl = `${cfg.rtdbUrl}/data/${encodeURIComponent(key)}.json${authQuery}`;
+    const nestedResp = await fetch(nestedUrl, { headers, signal: AbortSignal.timeout(5000) });
+    if (nestedResp.ok) {
+      const nestedData = await nestedResp.json();
+      if (nestedData !== null) return nestedData;
     }
 
-    const data = await resp.json();
-    if (data === null) return null;
-    return data;
+    return null;
   } catch (err) {
     console.warn(`[Storage] RTDB fetch for ${key} failed:`, err.message);
     return null;
@@ -241,22 +250,18 @@ async function saveToRtdb(key, data) {
   if (!cfg || !cfg.isRtdb) return false;
 
   try {
-    let url = `${cfg.rtdbUrl}/data/${encodeURIComponent(key)}.json`;
-    const headers = { 'Content-Type': 'application/json' };
-
-    if (cfg.hasServiceAccount) {
-      const token = await getGoogleAccessToken(cfg);
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      } else if (cfg.hasSecret) {
-        url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
-      }
-    } else if (cfg.hasSecret) {
-      url += `?auth=${encodeURIComponent(cfg.databaseSecret)}`;
-    }
+    const token = cfg.hasServiceAccount ? await getGoogleAccessToken(cfg) : null;
+    const authQuery = (!token && cfg.hasSecret) ? `?auth=${encodeURIComponent(cfg.databaseSecret)}` : '';
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
 
     const payload = JSON.stringify(data);
-    const resp = await fetch(url, {
+
+    // Save directly to root (e.g. /galleries.json)
+    const rootUrl = `${cfg.rtdbUrl}/${encodeURIComponent(key)}.json${authQuery}`;
+    const resp = await fetch(rootUrl, {
       method: 'PUT',
       headers,
       body: payload,
@@ -265,9 +270,20 @@ async function saveToRtdb(key, data) {
 
     if (!resp.ok) {
       const errText = await resp.text();
-      console.warn(`[Storage] RTDB PUT /data/${key}.json returned HTTP ${resp.status}: ${errText}`);
+      console.warn(`[Storage] RTDB PUT /${key}.json returned HTTP ${resp.status}: ${errText}`);
       return false;
     }
+
+    // Also mirror to /data/<key>.json for backward compatibility
+    try {
+      const nestedUrl = `${cfg.rtdbUrl}/data/${encodeURIComponent(key)}.json${authQuery}`;
+      await fetch(nestedUrl, {
+        method: 'PUT',
+        headers,
+        body: payload,
+        signal: AbortSignal.timeout(4000)
+      });
+    } catch {}
 
     return true;
   } catch (err) {
@@ -464,18 +480,42 @@ export function initStorage() {
     const cfg = getFirebaseConfig();
     const authType = cfg.hasServiceAccount ? 'Service Account (Private Key)' : (cfg.hasSecret ? 'Database Secret' : 'Public/Test Mode');
     console.log(`[Storage] Firebase Realtime Database is READY (Auth: ${authType}, URL: ${cfg.rtdbUrl})`);
-    syncFromCloud().catch(err => {
-      console.warn('[Storage] Background RTDB cold-start sync warning:', err.message);
-    });
+    if (!IS_VERCEL) {
+      syncFromCloud().catch(err => {
+        console.warn('[Storage] Background RTDB cold-start sync warning:', err.message);
+      });
+    }
   } else if (isFirebaseStorageReady()) {
     const cfg = getFirebaseConfig();
     console.log(`[Storage] Firebase Cloud Storage is READY (Bucket: ${cfg.bucket})`);
-    syncFromCloud().catch(err => {
-      console.warn('[Storage] Background GCS cold-start sync warning:', err.message);
-    });
+    if (!IS_VERCEL) {
+      syncFromCloud().catch(err => {
+        console.warn('[Storage] Background GCS cold-start sync warning:', err.message);
+      });
+    }
   } else {
     console.log(`[Storage] Cloud database not configured. Running in Local Storage (${IS_VERCEL ? '/tmp' : './data'}) Fallback mode.`);
   }
+}
+
+// Ensures storage is initialized and synced from cloud before serving requests (critical for Vercel cold starts)
+export async function ensureStorageReady() {
+  if (memoryState.isCloudSynced) return true;
+  if (!initPromise) {
+    initPromise = (async () => {
+      initStorage();
+      if (isFirebaseReady()) {
+        try {
+          await syncFromCloud();
+        } catch (err) {
+          console.warn('[Storage] ensureStorageReady sync error:', err.message);
+        }
+      }
+      memoryState.isCloudSynced = true;
+      return true;
+    })();
+  }
+  return initPromise;
 }
 
 // Asynchronously sync from cloud backend at boot time
@@ -497,7 +537,11 @@ export async function syncFromCloud() {
       } else {
         // Cold-start seed to cloud if remote is empty
         if (memoryState.galleries && memoryState.galleries.length > 0) {
-          queueCloudSync('galleries.json', memoryState.galleries);
+          if (IS_VERCEL) {
+            await saveToRtdb('galleries', memoryState.galleries);
+          } else {
+            queueCloudSync('galleries.json', memoryState.galleries);
+          }
         }
       }
 
@@ -508,7 +552,11 @@ export async function syncFromCloud() {
         writeJsonFile(SETTINGS_FILE, memoryState.settings);
       } else {
         if (memoryState.settings) {
-          queueCloudSync('settings.json', memoryState.settings);
+          if (IS_VERCEL) {
+            await saveToRtdb('settings', memoryState.settings);
+          } else {
+            queueCloudSync('settings.json', memoryState.settings);
+          }
         }
       }
 
@@ -541,7 +589,11 @@ export async function syncFromCloud() {
         }
       } else {
         if (memoryState.galleries && memoryState.galleries.length > 0) {
-          queueCloudSync('galleries.json', memoryState.galleries);
+          if (IS_VERCEL) {
+            await uploadToGcs('data/galleries.json', JSON.stringify(memoryState.galleries, null, 2));
+          } else {
+            queueCloudSync('galleries.json', memoryState.galleries);
+          }
         }
       }
 
@@ -559,7 +611,11 @@ export async function syncFromCloud() {
         }
       } else {
         if (memoryState.settings) {
-          queueCloudSync('settings.json', memoryState.settings);
+          if (IS_VERCEL) {
+            await uploadToGcs('data/settings.json', JSON.stringify(memoryState.settings, null, 2));
+          } else {
+            queueCloudSync('settings.json', memoryState.settings);
+          }
         }
       }
 
@@ -593,16 +649,26 @@ export function getGalleries() {
   return memoryState.galleries || [];
 }
 
-export function saveGalleries(galleries) {
+export async function saveGalleries(galleries) {
   if (!memoryState.isInitialized) initStorage();
   const valid = normalizeArray(galleries);
   memoryState.galleries = valid;
 
-  // 1. Write to local file immediately (< 1 ms response)
+  // 1. Write to local file /tmp immediately (< 1 ms response)
   writeJsonFile(GALLERIES_FILE, valid);
 
-  // 2. Queue debounced cloud upload (micro-batching 2s debounce)
-  queueCloudSync('galleries.json', valid);
+  // 2. Cloud sync
+  if (IS_VERCEL) {
+    // Vercel serverless: write directly without debounce so the lambda does not freeze before completion
+    if (isRtdbReady()) {
+      await saveToRtdb('galleries', valid);
+    } else if (isFirebaseStorageReady()) {
+      await uploadToGcs('data/galleries.json', JSON.stringify(valid, null, 2));
+    }
+  } else {
+    // Local / VPS: micro-batch with debounce
+    queueCloudSync('galleries.json', valid);
+  }
 
   return true;
 }
@@ -617,13 +683,22 @@ export function getSettings() {
   };
 }
 
-export function saveSettings(settings) {
+export async function saveSettings(settings) {
   if (!memoryState.isInitialized) initStorage();
   const updated = { ...(memoryState.settings || {}), ...settings };
   memoryState.settings = updated;
 
   writeJsonFile(SETTINGS_FILE, updated);
-  queueCloudSync('settings.json', updated);
+
+  if (IS_VERCEL) {
+    if (isRtdbReady()) {
+      await saveToRtdb('settings', updated);
+    } else if (isFirebaseStorageReady()) {
+      await uploadToGcs('data/settings.json', JSON.stringify(updated, null, 2));
+    }
+  } else {
+    queueCloudSync('settings.json', updated);
+  }
 
   return true;
 }
@@ -633,13 +708,22 @@ export function getFilesCache() {
   return memoryState.filesCache || {};
 }
 
-export function saveFilesCache(cache) {
+export async function saveFilesCache(cache) {
   if (!memoryState.isInitialized) initStorage();
   const valid = (cache && typeof cache === 'object') ? cache : {};
   memoryState.filesCache = valid;
 
   writeJsonFile(FILES_CACHE_FILE, valid);
-  queueCloudSync('files_cache.json', valid);
+
+  if (IS_VERCEL) {
+    if (isRtdbReady()) {
+      await saveToRtdb('files_cache', valid);
+    } else if (isFirebaseStorageReady()) {
+      await uploadToGcs('data/files_cache.json', JSON.stringify(valid, null, 2));
+    }
+  } else {
+    queueCloudSync('files_cache.json', valid);
+  }
 
   return true;
 }

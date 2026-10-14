@@ -1,3 +1,10 @@
+// Automatically load .env file if available (Node 20+)
+if (typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile();
+  } catch {}
+}
+
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +19,7 @@ import {
   SETTINGS_FILE,
   FILES_CACHE_FILE,
   initStorage,
+  ensureStorageReady,
   getGalleries,
   saveGalleries,
   getSettings,
@@ -303,7 +311,7 @@ async function syncFolder(folderId) {
     }
   }
   if (galleriesUpdated) {
-    saveGalleries(galleries);
+    await saveGalleries(galleries);
   }
 
   return formattedFiles;
@@ -468,7 +476,7 @@ async function buildEditorGalleryDetail(g, forceRefresh = false, baseUrl = '') {
     if (target) {
       target.selected_meta = meta;
       target.selected_count = selectedIds.length;
-      saveGalleries(galleries);
+      await saveGalleries(galleries);
     }
   }
 
@@ -818,6 +826,9 @@ export async function handleRequest(req, res) {
     apiPath = '/' + apiPath;
   }
 
+  // Ensure storage is synced with cloud on cold starts (especially critical on Vercel)
+  await ensureStorageReady();
+
   // ----------------------------------------------------
   // ROUTE: Thumbnail Proxy (/api/thumb or /thumb or ?studio_thumb=)
   // ----------------------------------------------------
@@ -966,7 +977,7 @@ export async function handleRequest(req, res) {
       target.note = String(body.note).slice(0, 5000);
     }
 
-    saveGalleries(galleries);
+    await saveGalleries(galleries);
     return sendJson(res, 200, {
       ok: true,
       selectedIds: finalIds,
@@ -1032,7 +1043,7 @@ export async function handleRequest(req, res) {
     target.submitted_at = submittedAt;
     target.updated_at = submittedAt;
 
-    saveGalleries(galleries);
+    await saveGalleries(galleries);
     return sendJson(res, 200, {
       ok: true,
       submittedAt,
@@ -1059,7 +1070,7 @@ export async function handleRequest(req, res) {
     const newKey = generateRandomToken(40);
     const settings = getSettings();
     settings.editor_key = newKey;
-    saveSettings(settings);
+    await saveSettings(settings);
 
     return sendJson(res, 200, {
       key: newKey,
@@ -1150,7 +1161,7 @@ export async function handleRequest(req, res) {
     const wa = String(body.whatsapp || '').replace(/[^0-9]/g, '');
     const settings = getSettings();
     settings.whatsapp = wa;
-    saveSettings(settings);
+    await saveSettings(settings);
     return sendJson(res, 200, { ok: true, whatsapp: wa });
   }
 
@@ -1229,7 +1240,7 @@ export async function handleRequest(req, res) {
     };
 
     galleries.push(newGallery);
-    saveGalleries(galleries);
+    await saveGalleries(galleries);
 
     // Warm-up cache in background
     getFileIndex(folderId).catch(() => {});
@@ -1263,7 +1274,7 @@ export async function handleRequest(req, res) {
       gallery.status = 'reopened';
       gallery.reopened_at = now;
       gallery.updated_at = now;
-      saveGalleries(galleries);
+      await saveGalleries(galleries);
       return sendJson(res, 200, { ok: true });
     }
 
@@ -1272,7 +1283,7 @@ export async function handleRequest(req, res) {
       const newToken = generateRandomToken(32);
       gallery.token = newToken;
       gallery.updated_at = getCurrentTimestamp();
-      saveGalleries(galleries);
+      await saveGalleries(galleries);
       return sendJson(res, 200, { link: `${baseUrl}/client?k=${newToken}` });
     }
 
@@ -1297,7 +1308,7 @@ export async function handleRequest(req, res) {
       const idx = galleries.findIndex(g => g.id === galleryId);
       if (idx !== -1) {
         galleries.splice(idx, 1);
-        saveGalleries(galleries);
+        await saveGalleries(galleries);
       }
       return sendJson(res, 200, { ok: true });
     }
@@ -1347,7 +1358,7 @@ export async function handleRequest(req, res) {
       }
 
       gallery.updated_at = getCurrentTimestamp();
-      saveGalleries(galleries);
+      await saveGalleries(galleries);
       return sendJson(res, 200, { ok: true });
     }
   }

@@ -1,12 +1,11 @@
 [
   {
+    "created_at": "2026-10-07 10:00:00",
     "id": 1,
-    "token": "budi-wedding-token-2026",
-    "title": "Budi & Sari Wedding",
-    "source_folder_id": "1kWFeHliLzO1HYEZ3dh5nFruHxhq7_4Wi",
-    "result_folder_id": "1kWFeHliLzO1HYEZ3dh5nFruHxhq7_4Wi",
     "max_select": 20,
-    "status": "submitted",
+    "note": "",
+    "result_folder_id": "1kWFeHliLzO1HYEZ3dh5nFruHxhq7_4Wi",
+    "selected_count": 20,
     "selected_ids": [
       "1l1YARAyw5avPvTRZNJmceKiNXfNs8cGz",
       "1g8cKBu-Upm3upaQWRJU2eRZd8MBdL7Hj",
@@ -29,12 +28,11 @@
       "1Oc5jtHhQUg6-zhsYdqVCXyaBEGRH96T4",
       "1OvfTJllNXvLgen8Q8W4D7ATkoxvZZq3-"
     ],
-    "selected_meta": {},
-    "selected_count": 20,
-    "note": "",
-    "created_at": "2026-10-07 10:00:00",
-    "updated_at": "2026-10-07 16:53:00",
+    "source_folder_id": "1kWFeHliLzO1HYEZ3dh5nFruHxhq7_4Wi",
+    "status": "submitted",
     "submitted_at": "2026-10-07 16:53:00",
-    "reopened_at": null
+    "title": "Budi & Sari Wedding",
+    "token": "budi-wedding-token-2026",
+    "updated_at": "2026-10-07 16:53:00"
   }
 ]
