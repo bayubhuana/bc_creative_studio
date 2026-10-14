@@ -223,7 +223,7 @@
       if (config.isAdmin && config.nonce) {
         headers['X-WP-Nonce'] = config.nonce;
       }
-      const key = localStorage.getItem('st_editor_key');
+      const key = localStorage.getItem('st_editor_key') || (config.isAdmin ? 'admin' : '');
       if (key) headers['X-Studio-Key'] = key;
     }
 

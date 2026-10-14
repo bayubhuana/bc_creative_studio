@@ -81,21 +81,21 @@
         <div id="st-detailPanel" class="st-editor-detail-panel" style="display: none;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--st-space-3); margin-bottom: var(--st-space-3); flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: var(--st-space-3); flex-wrap: wrap;">
-              <button class="st-btn st-btn-outline" id="st-closeDetailBtn" style="height: 36px; font-size: 14px; padding: 0 14px;">← Tutup</button>
+              <button class="st-btn st-btn-outline" id="st-closeDetailBtn" style="height: 36px; font-size: 14px; padding: 0 14px;">← Galeri</button>
+              <button type="button" class="st-sidebar-toggle-btn" id="st-toggleSidebarBtn" title="Sembunyikan panel daftar galeri untuk memperlebar foto">◧ Sembunyikan Sidebar</button>
               <div>
                 <h2 id="st-detailTitle" style="margin: 0;">Detail Galeri</h2>
                 <small id="st-detailSyncInfo" class="st-text-muted" style="font-size: 12px;"></small>
               </div>
             </div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="st-btn st-btn-primary" id="st-headerManualSelectBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">✋ Pilih Foto Manual</button>
-              <button class="st-btn st-btn-outline" id="st-warmThumbsBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">⚡ Siapkan Thumbnail</button>
-              <button class="st-btn st-btn-outline" id="st-refreshDetailBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">↻ Muat Ulang Foto</button>
-            </div>
           </div>
           <div id="st-detailContent"></div>
         </div>
       </main>
+
+      <!-- Dialog Konfirmasi Perubahan Pilihan Manual -->
+      <div id="st-reviewDlg-backdrop" class="st-dialog-backdrop"></div>
+      <div id="st-reviewDlg" class="st-dialog" style="max-width: 490px;"></div>
 
       <!-- Dialog Atur Galeri -->
       <div id="st-manageDlg-backdrop" class="st-dialog-backdrop"></div>
@@ -495,15 +495,76 @@
     }
   }
 
+  // --- Sidebar & Dropdowns (UX Simplification) ---
+  let isSidebarCollapsed = localStorage.getItem('st_editor_sidebar_collapsed') === '1';
+
+  function applySidebarState() {
+    const mainEl = $('st-main');
+    const toggleBtn = $('st-toggleSidebarBtn');
+    if (!mainEl) return;
+
+    if (window.innerWidth < 900) {
+      if (toggleBtn) toggleBtn.style.display = 'none';
+      return;
+    }
+
+    if (toggleBtn) {
+      toggleBtn.style.display = activeGalleryId ? 'inline-flex' : 'none';
+    }
+
+    if (isSidebarCollapsed && activeGalleryId) {
+      mainEl.classList.add('st-sidebar-collapsed');
+      if (toggleBtn) {
+        toggleBtn.innerHTML = '◧ Buka Daftar';
+        toggleBtn.title = 'Tampilkan panel daftar galeri';
+      }
+    } else {
+      mainEl.classList.remove('st-sidebar-collapsed');
+      if (toggleBtn) {
+        toggleBtn.innerHTML = '◧ Sembunyikan Sidebar';
+        toggleBtn.title = 'Sembunyikan panel daftar galeri untuk memperlebar foto';
+      }
+    }
+  }
+
+  function toggleSidebar() {
+    isSidebarCollapsed = !isSidebarCollapsed;
+    localStorage.setItem('st_editor_sidebar_collapsed', isSidebarCollapsed ? '1' : '0');
+    applySidebarState();
+  }
+
+  function closeAllDropdowns() {
+    document.querySelectorAll('.st-dropdown-menu.st-open').forEach(el => {
+      el.classList.remove('st-open');
+    });
+  }
+
+  function toggleDropdown(menuId, e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const menu = $(menuId);
+    if (!menu) return;
+    const isOpen = menu.classList.contains('st-open');
+    closeAllDropdowns();
+    if (!isOpen) {
+      menu.classList.add('st-open');
+    }
+  }
+
   function closeDetailPanel() {
     if (isPickerMode) {
       exitPickerMode();
       return;
     }
+    closeAllDropdowns();
     activeGalleryId = null;
     $('st-detailPanel').style.display = 'none';
     $('st-listPanel').style.display = 'block';
+    $('st-main').classList.remove('st-sidebar-collapsed');
     renderGalleries();
+    applySidebarState();
   }
 
   // --- Detail View (B7, B9, D8, D9, D10) ---
@@ -547,20 +608,54 @@
       ? `<div class="st-banner">📝 <div><strong>Catatan Klien:</strong> ${esc(data.note)}</div></div>`
       : '';
 
+    let statusBadgeHtml = '';
+    const st = targetG?.status || data.status;
+    if (st === 'submitted') statusBadgeHtml = '<span class="st-badge-status st-status-submitted" style="font-size: 12px; padding: 2px 10px;">Terkirim 🔒</span>';
+    else if (st === 'draft') statusBadgeHtml = '<span class="st-badge-status st-status-draft" style="font-size: 12px; padding: 2px 10px;">Draft</span>';
+    else if (st === 'reopened') statusBadgeHtml = '<span class="st-badge-status st-status-reopened" style="font-size: 12px; padding: 2px 10px;">Dibuka Kembali</span>';
+    else statusBadgeHtml = '<span class="st-badge-status st-status-unstarted" style="font-size: 12px; padding: 2px 10px;">Belum Mulai</span>';
+
     if (!currentPhotos.length) {
       $('st-detailContent').innerHTML = `
         ${noteHtml}
-        <div class="st-banner">Belum ada foto yang dipilih oleh klien pada galeri ini.</div>
-        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-          <button type="button" class="st-btn st-btn-primary" id="st-emptyManualSelectBtn" style="height: 34px; font-size: 13px;">✋ Pilih Foto Manual Sekarang</button>
-          ${clientLink ? `<button type="button" class="st-btn st-btn-outline" id="st-emptyCopyLinkBtn" style="height: 34px; font-size: 13px;">🔗 Salin Link Klien</button>` : ''}
+        <div class="st-detail-toolbar">
+          <div class="st-toolbar-left">
+            <span style="font-size: 14px;">Total: <strong>0</strong>${targetG?.max_select > 0 ? ` / ${targetG.max_select}` : ''} foto</span>
+            ${statusBadgeHtml}
+          </div>
+          <div class="st-toolbar-right">
+            <button type="button" class="st-btn st-btn-primary" id="st-emptyManualSelectBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">✋ Pilih Foto Manual Sekarang</button>
+            ${clientLink ? `<button type="button" class="st-btn st-btn-outline" id="st-emptyCopyLinkBtn" style="height: 36px; font-size: 13px; padding: 0 12px;" title="Salin link klien">🔗 Link Klien</button>` : ''}
+            <div class="st-dropdown-wrap">
+              <button type="button" class="st-btn st-btn-outline" id="st-emptyMoreBtn" style="height: 36px; font-size: 13px; padding: 0 12px;">⚙️ Opsi ▾</button>
+              <div class="st-dropdown-menu" id="st-emptyMoreMenu">
+                <button type="button" class="st-dropdown-item" id="st-emptyDdWarming">⚡ <span>Siapkan Cache Thumbnail</span></button>
+                <button type="button" class="st-dropdown-item" id="st-emptyDdResync">🔄 <span>Sinkronisasi Ulang Drive</span></button>
+                <div class="st-dropdown-divider"></div>
+                <button type="button" class="st-dropdown-item" id="st-emptyDdManage">✏️ <span>Pengaturan Galeri</span></button>
+              </div>
+            </div>
+          </div>
         </div>
+        <div class="st-banner">Belum ada foto yang dipilih oleh klien pada galeri ini. Klik tombol di atas untuk memilih foto secara manual atau salin link untuk klien.</div>
       `;
       if ($('st-emptyManualSelectBtn')) {
         $('st-emptyManualSelectBtn').onclick = () => openManualSelectConfirm(id);
       }
       if ($('st-emptyCopyLinkBtn')) {
         $('st-emptyCopyLinkBtn').onclick = () => copyText(clientLink, 'Link klien disalin!');
+      }
+      if ($('st-emptyMoreBtn')) {
+        $('st-emptyMoreBtn').onclick = (e) => toggleDropdown('st-emptyMoreMenu', e);
+      }
+      if ($('st-emptyDdWarming')) {
+        $('st-emptyDdWarming').onclick = () => { closeAllDropdowns(); warmThumbsForGallery(id); };
+      }
+      if ($('st-emptyDdResync')) {
+        $('st-emptyDdResync').onclick = () => { closeAllDropdowns(); resyncGalleryNames(id); };
+      }
+      if ($('st-emptyDdManage')) {
+        $('st-emptyDdManage').onclick = () => { closeAllDropdowns(); openManageDialog(id); };
       }
       return;
     }
@@ -590,13 +685,66 @@
     $('st-detailContent').innerHTML = `
       ${noteHtml}
       ${missingBannerHtml}
-      <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;">
-        <span class="st-text-muted" style="font-size: 14px; margin-right: 4px;">Total: <strong>${currentPhotos.length}</strong> foto</span>
-        <button type="button" class="st-btn st-btn-primary" id="st-detailManualSelectBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">✋ Ubah / Tambah Pilihan</button>
-        ${clientLink ? `<button type="button" class="st-btn st-btn-outline" id="st-detailCopyLinkBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">🔗 Salin Link Klien</button>` : ''}
-        <a href="${currentCsvUrl}" download="pilihan_${esc(id)}.csv" class="st-btn st-btn-outline" style="height: 34px; font-size: 13px; padding: 0 14px;">📥 Unduh CSV</a>
-        <button type="button" class="st-btn st-btn-outline" id="st-copyNamesBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">📋 Salin Nama File</button>
-        <button type="button" class="st-btn st-btn-outline" id="st-copyCsvBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">📋 Salin CSV</button>
+      <div class="st-detail-toolbar">
+        <div class="st-toolbar-left">
+          <span style="font-size: 14px;">Total: <strong>${currentPhotos.length}</strong>${targetG?.max_select > 0 ? ` / ${targetG.max_select}` : ''} foto</span>
+          ${statusBadgeHtml}
+        </div>
+        <div class="st-toolbar-right">
+          <!-- Primary CTA: Single Manual Selection Button -->
+          <button type="button" class="st-btn st-btn-primary" id="st-detailManualSelectBtn" style="height: 36px; font-size: 13px; padding: 0 14px;">
+            ✋ Ubah / Tambah Pilihan
+          </button>
+
+          <!-- Quick Copy Link -->
+          ${clientLink ? `
+            <button type="button" class="st-btn st-btn-outline" id="st-detailCopyLinkBtn" style="height: 36px; font-size: 13px; padding: 0 12px;" title="Salin link klien">
+              🔗 Link Klien
+            </button>
+          ` : ''}
+
+          <!-- Dropdown Ekspor -->
+          <div class="st-dropdown-wrap">
+            <button type="button" class="st-btn st-btn-outline" id="st-exportDropdownBtn" style="height: 36px; font-size: 13px; padding: 0 12px;">
+              📥 Ekspor ▾
+            </button>
+            <div class="st-dropdown-menu" id="st-exportDropdownMenu">
+              <a href="${currentCsvUrl}" download="pilihan_${esc(id)}.csv" class="st-dropdown-item" id="st-ddDownloadCsv">
+                <span>📥 Unduh File CSV</span>
+              </a>
+              <button type="button" class="st-dropdown-item" id="st-ddCopyNames">
+                <span>📋 Salin Nama File</span>
+              </button>
+              <button type="button" class="st-dropdown-item" id="st-ddCopyCsv">
+                <span>📋 Salin Format CSV</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dropdown Opsi & Pemeliharaan -->
+          <div class="st-dropdown-wrap">
+            <button type="button" class="st-btn st-btn-outline" id="st-moreDropdownBtn" style="height: 36px; font-size: 13px; padding: 0 12px;">
+              ⚙️ Opsi ▾
+            </button>
+            <div class="st-dropdown-menu" id="st-moreDropdownMenu">
+              <button type="button" class="st-dropdown-item" id="st-ddWarmThumbs">
+                <span>⚡ Siapkan Cache Thumbnail</span>
+              </button>
+              <button type="button" class="st-dropdown-item" id="st-ddResyncDrive">
+                <span>🔄 Sinkronisasi Ulang Drive</span>
+              </button>
+              ${targetG?.status === 'submitted' ? `
+                <button type="button" class="st-dropdown-item" id="st-ddReopen">
+                  <span>🔓 Buka Akses Klien</span>
+                </button>
+              ` : ''}
+              <div class="st-dropdown-divider"></div>
+              <button type="button" class="st-dropdown-item" id="st-ddManageGallery">
+                <span>✏️ Pengaturan Galeri</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="st-photo-grid st-editor-photo-grid" id="st-editorGrid" style="margin-top: 16px;"></div>
     `;
@@ -613,17 +761,61 @@
       $('st-resyncNamesBtn').onclick = () => resyncGalleryNames(id);
     }
 
-    $('st-copyNamesBtn').onclick = () => {
-      if (!validNames.length) {
-        toast('Nama file belum tersedia. Klik "Muat Ulang Nama" terlebih dahulu.');
-        return;
-      }
-      const msg = missingCount > 0
-        ? `${validNames.length} nama file disalin (${missingCount} nama belum tersedia dilewati)`
-        : `${validNames.length} nama file disalin!`;
-      copyText(validNames.join('\n'), msg);
-    };
-    $('st-copyCsvBtn').onclick = () => copyText(csv, 'Data CSV disalin!');
+    // Ekspor dropdown triggers
+    if ($('st-exportDropdownBtn')) {
+      $('st-exportDropdownBtn').onclick = (e) => toggleDropdown('st-exportDropdownMenu', e);
+    }
+    if ($('st-ddDownloadCsv')) {
+      $('st-ddDownloadCsv').onclick = () => closeAllDropdowns();
+    }
+    if ($('st-ddCopyNames')) {
+      $('st-ddCopyNames').onclick = () => {
+        closeAllDropdowns();
+        if (!validNames.length) {
+          toast('Nama file belum tersedia. Klik "Muat Ulang Nama" terlebih dahulu.');
+          return;
+        }
+        const msg = missingCount > 0
+          ? `${validNames.length} nama file disalin (${missingCount} nama belum tersedia dilewati)`
+          : `${validNames.length} nama file disalin!`;
+        copyText(validNames.join('\n'), msg);
+      };
+    }
+    if ($('st-ddCopyCsv')) {
+      $('st-ddCopyCsv').onclick = () => {
+        closeAllDropdowns();
+        copyText(csv, 'Data CSV disalin!');
+      };
+    }
+
+    // Opsi dropdown triggers
+    if ($('st-moreDropdownBtn')) {
+      $('st-moreDropdownBtn').onclick = (e) => toggleDropdown('st-moreDropdownMenu', e);
+    }
+    if ($('st-ddWarmThumbs')) {
+      $('st-ddWarmThumbs').onclick = () => {
+        closeAllDropdowns();
+        warmThumbsForGallery(id);
+      };
+    }
+    if ($('st-ddResyncDrive')) {
+      $('st-ddResyncDrive').onclick = () => {
+        closeAllDropdowns();
+        resyncGalleryNames(id);
+      };
+    }
+    if ($('st-ddReopen')) {
+      $('st-ddReopen').onclick = () => {
+        closeAllDropdowns();
+        reopenGallery(id);
+      };
+    }
+    if ($('st-ddManageGallery')) {
+      $('st-ddManageGallery').onclick = () => {
+        closeAllDropdowns();
+        openManageDialog(id);
+      };
+    }
 
     const gridEl = $('st-editorGrid');
     gridEl.innerHTML = '';
@@ -801,9 +993,10 @@
     if (window.innerWidth < 900) {
       $('st-listPanel').style.display = 'none';
     } else {
-      $('st-listPanel').style.display = 'block';
+      $('st-listPanel').style.display = isSidebarCollapsed ? 'none' : 'block';
     }
     $('st-detailPanel').style.display = 'block';
+    applySidebarState();
     $('st-detailContent').innerHTML = '<p class="st-text-muted">Memuat foto pilihan klien...</p>';
 
     try {
@@ -911,9 +1104,10 @@
     if (window.innerWidth < 900) {
       $('st-listPanel').style.display = 'none';
     } else {
-      $('st-listPanel').style.display = 'block';
+      $('st-listPanel').style.display = isSidebarCollapsed ? 'none' : 'block';
     }
     $('st-detailPanel').style.display = 'block';
+    applySidebarState();
     $('st-detailTitle').textContent = 'Pilih Foto Manual...';
     if ($('st-detailSyncInfo')) $('st-detailSyncInfo').textContent = '';
     $('st-detailContent').innerHTML = `
@@ -980,7 +1174,7 @@
             <button type="button" class="st-btn st-btn-outline" id="st-pickerSelectBatchBtn" style="font-size: 13px; height: 36px;">${max > 0 ? `Pilih Hingga Batas (${max})` : 'Pilih Semua'}</button>
             <button type="button" class="st-btn st-btn-outline" id="st-pickerResetBtn" style="font-size: 13px; height: 36px;">Hapus Pilihan</button>
             <button type="button" class="st-btn st-btn-outline" id="st-pickerCancelBtn" style="font-size: 13px; height: 36px;">Batal</button>
-            <button type="button" class="st-btn st-btn-primary" id="st-pickerSaveBtn" style="font-size: 13px; height: 36px;">💾 Simpan Pilihan</button>
+            <button type="button" class="st-btn st-btn-primary" id="st-pickerReviewBtn" style="font-size: 13px; height: 36px;">✓ Konfirmasi Perubahan</button>
           </div>
         </div>
       </div>
@@ -1001,7 +1195,7 @@
       updatePickerCounters();
       refreshPickerGridSelection();
     };
-    $('st-pickerSaveBtn').onclick = () => saveManualSelection();
+    $('st-pickerReviewBtn').onclick = () => openReviewSelectionDialog();
 
     let searchDebounce = null;
     $('st-pickerSearch').oninput = (e) => {
@@ -1232,12 +1426,81 @@
     });
   }
 
+  function openReviewSelectionDialog() {
+    if (!pickerData || !pickerGalleryId) return;
+    const initialSet = new Set(Array.isArray(pickerData.selectedIds) ? pickerData.selectedIds : []);
+    let addedCount = 0;
+    let removedCount = 0;
+
+    pickerSelected.forEach(id => {
+      if (!initialSet.has(id)) addedCount++;
+    });
+    initialSet.forEach(id => {
+      if (!pickerSelected.has(id)) removedCount++;
+    });
+
+    const max = Number(pickerData.maxSelect || 0);
+    const maxLabel = max > 0 ? ` / ${max}` : '';
+
+    $('st-reviewDlg').innerHTML = `
+      <h2 style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+        <span>⚠️</span> <span>Konfirmasi Pilihan Foto Manual</span>
+      </h2>
+      <p class="st-text-muted" style="margin-bottom: 14px; font-size: 14px;">
+        Galeri: <strong>${esc(pickerData.title)}</strong>
+      </p>
+
+      <div class="st-review-box">
+        <div class="st-review-stat-row">
+          <span>Total Foto Dipilih:</span>
+          <span class="st-review-stat-val">${pickerSelected.size}${maxLabel} foto</span>
+        </div>
+        <div class="st-review-stat-row">
+          <span>Perubahan Seleksi:</span>
+          <div class="st-review-diff-wrap">
+            ${addedCount > 0 ? `<span class="st-review-diff-badge st-diff-add">+${addedCount} baru</span>` : ''}
+            ${removedCount > 0 ? `<span class="st-review-diff-badge st-diff-remove">-${removedCount} dihapus</span>` : ''}
+            ${addedCount === 0 && removedCount === 0 ? `<span class="st-review-diff-badge st-diff-same">Tidak ada perubahan</span>` : ''}
+          </div>
+        </div>
+        <div class="st-review-stat-row">
+          <span>Status Galeri Baru:</span>
+          <span class="st-badge-status st-status-submitted" style="font-size: 12px; padding: 2px 10px;">Terkirim (Terkunci)</span>
+        </div>
+      </div>
+
+      <div class="st-banner" style="font-size: 13px; border-color: #fbbf24; color: #fbbf24; margin: 14px 0;">
+        <span>Pilihan foto klien akan disimpan dan status galeri dikunci. Klien tidak dapat mengubah foto kecuali akses dibuka kembali oleh editor.</span>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap;">
+        <button type="button" class="st-btn st-btn-outline" id="st-reviewCancelBtn">← Periksa Lagi</button>
+        <button type="button" class="st-btn st-btn-primary" id="st-reviewConfirmBtn">✓ Ya, Simpan & Kunci</button>
+      </div>
+    `;
+
+    openDialog('st-reviewDlg');
+
+    $('st-reviewCancelBtn').onclick = () => {
+      closeDialog('st-reviewDlg');
+    };
+
+    $('st-reviewConfirmBtn').onclick = () => {
+      saveManualSelection();
+    };
+  }
+
   async function saveManualSelection() {
     if (!pickerGalleryId) return;
-    const saveBtn = $('st-pickerSaveBtn');
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.textContent = '⏳ Menyimpan...';
+    const confirmBtn = $('st-reviewConfirmBtn');
+    const bottomBtn = $('st-pickerReviewBtn');
+    if (confirmBtn) {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = '⏳ Menyimpan...';
+    }
+    if (bottomBtn) {
+      bottomBtn.disabled = true;
+      bottomBtn.textContent = '⏳ Menyimpan...';
     }
 
     try {
@@ -1247,15 +1510,20 @@
         body: JSON.stringify({ ids })
       });
 
+      closeDialog('st-reviewDlg');
       toast(`Berhasil menyimpan ${res.count} foto pilihan!`, 'success');
       exitPickerMode();
       await loadGalleries(true);
       await viewGallery(pickerGalleryId, true);
     } catch (err) {
       toast(`Gagal menyimpan: ${err.message}`, 'error');
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = '💾 Simpan Pilihan';
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '✓ Ya, Simpan & Kunci';
+      }
+      if (bottomBtn) {
+        bottomBtn.disabled = false;
+        bottomBtn.textContent = '✓ Konfirmasi Perubahan';
       }
     }
   }
@@ -1267,6 +1535,7 @@
     pickerPhotos = [];
     pickerFiltered = [];
     removePickerSentinel();
+    closeDialog('st-reviewDlg');
 
     const lbBtn = $('st-lbSelectToggle');
     if (lbBtn) lbBtn.style.display = 'none';
@@ -1325,35 +1594,40 @@
     }
   }
 
+  async function warmThumbsForGallery(id) {
+    const targetId = id || activeGalleryId;
+    if (!targetId) return;
+    toast('Menyiapkan cache thumbnail di latar belakang...');
+    try {
+      const res = await apiFetch(`/editor/galleries/${targetId}/warm-thumbs`, { method: 'POST' });
+      toast(`Thumbnail siap: ${res.cached}/${res.total} foto${res.remaining > 0 ? ' (sisanya berjalan di latar belakang)' : ''}`);
+      if (activeGalleryId && String(activeGalleryId) === String(targetId)) {
+        viewGallery(activeGalleryId, false);
+      }
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
   function bindEvents() {
     $('st-refreshBtn').onclick = () => {
       toast('Memuat ulang daftar galeri...');
       loadGalleries();
       if (activeGalleryId) viewGallery(activeGalleryId, false);
     };
-    $('st-refreshDetailBtn').onclick = () => {
-      if (activeGalleryId) {
-        toast('Sinkronisasi ulang folder Google Drive...');
-        resyncGalleryNames(activeGalleryId);
-      }
-    };
-    $('st-warmThumbsBtn').onclick = async () => {
-      if (!activeGalleryId) return;
-      const btn = $('st-warmThumbsBtn');
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Menyiapkan...';
-      try {
-        const res = await apiFetch(`/editor/galleries/${activeGalleryId}/warm-thumbs`, { method: 'POST' });
-        toast(`Thumbnail siap: ${res.cached}/${res.total} foto${res.remaining > 0 ? ' (sisanya berjalan di latar belakang)' : ''}`);
-        viewGallery(activeGalleryId, false);
-      } catch (e) {
-        toast(e.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    };
+    if ($('st-refreshDetailBtn')) {
+      $('st-refreshDetailBtn').onclick = () => {
+        if (activeGalleryId) {
+          toast('Sinkronisasi ulang folder Google Drive...');
+          resyncGalleryNames(activeGalleryId);
+        }
+      };
+    }
+    if ($('st-warmThumbsBtn')) {
+      $('st-warmThumbsBtn').onclick = () => {
+        if (activeGalleryId) warmThumbsForGallery(activeGalleryId);
+      };
+    }
     $('st-newGalleryBtn').onclick = () => openManageDialog('new');
 
     $('st-mLink').addEventListener('input', e => {
@@ -1481,11 +1755,22 @@
     };
 
     $('st-closeDetailBtn').onclick = closeDetailPanel;
-    if ($('st-headerManualSelectBtn')) {
-      $('st-headerManualSelectBtn').onclick = () => {
-        if (activeGalleryId) openManualSelectConfirm(activeGalleryId);
-      };
+    if ($('st-toggleSidebarBtn')) {
+      $('st-toggleSidebarBtn').onclick = toggleSidebar;
     }
+    window.addEventListener('resize', () => {
+      applySidebarState();
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.st-dropdown-wrap')) {
+        closeAllDropdowns();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeAllDropdowns();
+      }
+    });
 
     const stepLb = d => {
       if (isPickerMode) {

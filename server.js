@@ -351,7 +351,13 @@ async function prefetchThumbs(folderId, count = 48) {
       }).catch(() => {});
       warmed++;
     }
-    return { ok: true, prefetchCount: warmed };
+    return {
+      ok: true,
+      prefetchCount: warmed,
+      cached: warmed,
+      total: files.length,
+      remaining: Math.max(0, files.length - count)
+    };
   } catch (err) {
     return { ok: false, error: err.message };
   }
