@@ -38,7 +38,8 @@
 
   function buildWaUrl(noteText) {
     if (!gallery || !gallery.editorWa) return '';
-    const teksWa = `Halo, saya *${gallery.title}* sudah selesai memilih *${sel.size}* foto.\n\nCatatan: ${noteText || '-'}`;
+    const currentUrl = window.location.href;
+    const teksWa = `Halo, saya *${gallery.title}* sudah selesai memilih *${sel.size}* foto.\n\nLink Galeri: ${currentUrl}\nCatatan: ${noteText || '-'}`;
     return `https://wa.me/${gallery.editorWa}?text=${encodeURIComponent(teksWa)}`;
   }
 

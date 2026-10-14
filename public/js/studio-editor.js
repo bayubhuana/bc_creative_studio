@@ -1,6 +1,6 @@
 /* studio-editor.js */
 (function() {
-  const { apiFetch, esc, openDialog, closeDialog, toast, confirmDialog, copyText, extractFolderId } = window.StudioApp;
+  const { apiFetch, esc, openDialog, closeDialog, toast, confirmDialog, copyText, toAbsoluteUrl, extractFolderId } = window.StudioApp;
 
   let galleries = [], currentPhotos = [], currentCur = 0;
   let activeGalleryId = null, currentCsvUrl = null, pollTimer = null;
@@ -189,13 +189,14 @@
       const res = await apiFetch('/editor/key');
       const box = $('st-adminPanel');
       if (!box) return;
+      const editorUrl = toAbsoluteUrl(res.url);
       box.style.display = 'block';
       box.innerHTML = `
         <div style="background: var(--st-surface); border: 1px solid var(--st-border); border-radius: var(--st-radius-md); padding: 16px;">
           <h3 style="margin-top:0; margin-bottom:8px;">Akses Editor (Khusus Admin)</h3>
           <p class="st-text-muted" style="margin-bottom:12px;">Berikan link ini kepada editor. Mereka tidak perlu login WordPress.</p>
           <div class="st-link-box">
-            <input type="text" readonly value="${esc(res.url)}" style="width:100%; background:transparent; border:none; color:var(--st-text); outline:none;" id="st-editorLinkInput">
+            <input type="text" readonly value="${esc(editorUrl)}" style="width:100%; background:transparent; border:none; color:var(--st-text); outline:none; cursor:pointer;" id="st-editorLinkInput" title="Klik untuk memilih semua">
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button class="st-btn st-btn-outline" style="height:32px; font-size:13px;" id="st-copyEditorLinkBtn">Salin Link Editor</button>
@@ -206,8 +207,12 @@
         </div>
       `;
 
+      $('st-editorLinkInput').onclick = () => {
+        $('st-editorLinkInput').select();
+      };
+
       $('st-copyEditorLinkBtn').onclick = () => {
-        copyText(res.url, 'Link editor disalin!');
+        copyText(editorUrl, 'Link editor disalin!');
       };
 
       $('st-rotateKeyBtn').onclick = async () => {
@@ -296,6 +301,7 @@
       const dateStr = g.updated_at ? new Date(g.updated_at.replace(' ', 'T')).toLocaleString('id-ID') : '-';
       const limitStr = Number(g.max_select) > 0 ? ` / ${g.max_select}` : '';
       const countNum = Number(g.selected_count) || 0;
+      const clientLink = toAbsoluteUrl(g.link);
 
       card.innerHTML = `
         <div class="st-client-card-header">
@@ -309,7 +315,7 @@
         <div style="display: flex; gap: var(--st-space-2); margin-top: var(--st-space-2); flex-wrap: wrap;">
           <button type="button" class="st-btn st-btn-primary st-view-btn" data-id="${g.id}" ${countNum === 0 ? 'disabled' : ''}>Lihat Pilihan (${countNum})</button>
           <button type="button" class="st-btn st-btn-outline st-edit-btn" data-id="${g.id}">Atur</button>
-          <button type="button" class="st-btn st-btn-outline st-copy-btn" data-link="${esc(g.link)}">Salin Link Klien</button>
+          <button type="button" class="st-btn st-btn-outline st-copy-btn" data-link="${esc(clientLink)}">Salin Link Klien</button>
           ${g.status === 'submitted' ? `<button type="button" class="st-btn st-btn-outline st-reopen-btn" data-id="${g.id}">Buka Akses</button>` : ''}
         </div>
       `;
@@ -324,8 +330,8 @@
     });
     list.querySelectorAll('.st-copy-btn').forEach(b => {
       b.onclick = () => {
-        const link = b.dataset.link;
-        if (!link) return toast('Link tidak tersedia. Pastikan page Studio Client sudah dibuat.');
+        const link = toAbsoluteUrl(b.dataset.link);
+        if (!link) return toast('Link klien tidak tersedia.');
         copyText(link, 'Link klien disalin!');
       };
     });
@@ -446,8 +452,9 @@
     try {
       const res = await apiFetch(`/editor/galleries/${id}/regenerate-token`, { method: 'POST' });
       await loadGalleries();
-      if (res.link) {
-        await copyText(res.link, 'Link klien baru berhasil dibuat & disalin!');
+      const newLink = toAbsoluteUrl(res.link);
+      if (newLink) {
+        await copyText(newLink, 'Link klien baru berhasil dibuat & disalin!');
       } else {
         toast('Token klien berhasil diperbarui', 'success');
       }
@@ -517,6 +524,9 @@
     }
     currentPhotos = Array.isArray(data.photos) ? data.photos : [];
 
+    const targetG = galleries.find(x => String(x.id) === String(id));
+    const clientLink = toAbsoluteUrl(targetG?.link || data.link || '');
+
     const noteHtml = data.note
       ? `<div class="st-banner">📝 <div><strong>Catatan Klien:</strong> ${esc(data.note)}</div></div>`
       : '';
@@ -525,7 +535,11 @@
       $('st-detailContent').innerHTML = `
         ${noteHtml}
         <div class="st-banner">Belum ada foto yang dipilih oleh klien pada galeri ini.</div>
+        ${clientLink ? `<div style="margin-top: 12px;"><button type="button" class="st-btn st-btn-outline" id="st-emptyCopyLinkBtn" style="height: 34px; font-size: 13px;">🔗 Salin Link Klien</button></div>` : ''}
       `;
+      if ($('st-emptyCopyLinkBtn')) {
+        $('st-emptyCopyLinkBtn').onclick = () => copyText(clientLink, 'Link klien disalin!');
+      }
       return;
     }
 
@@ -556,12 +570,17 @@
       ${missingBannerHtml}
       <div style="display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;">
         <span class="st-text-muted" style="font-size: 14px; margin-right: 4px;">Total: <strong>${currentPhotos.length}</strong> foto</span>
+        ${clientLink ? `<button type="button" class="st-btn st-btn-outline" id="st-detailCopyLinkBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">🔗 Salin Link Klien</button>` : ''}
         <a href="${currentCsvUrl}" download="pilihan_${esc(id)}.csv" class="st-btn st-btn-outline" style="height: 34px; font-size: 13px; padding: 0 14px;">📥 Unduh CSV</a>
         <button type="button" class="st-btn st-btn-outline" id="st-copyNamesBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">📋 Salin Nama File</button>
         <button type="button" class="st-btn st-btn-outline" id="st-copyCsvBtn" style="height: 34px; font-size: 13px; padding: 0 14px;">📋 Salin CSV</button>
       </div>
       <div class="st-photo-grid st-editor-photo-grid" id="st-editorGrid" style="margin-top: 16px;"></div>
     `;
+
+    if ($('st-detailCopyLinkBtn')) {
+      $('st-detailCopyLinkBtn').onclick = () => copyText(clientLink, 'Link klien disalin!');
+    }
 
     if ($('st-resyncNamesBtn')) {
       $('st-resyncNamesBtn').onclick = () => resyncGalleryNames(id);
@@ -860,8 +879,16 @@
           await apiFetch(`/editor/galleries/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
           toast('Galeri berhasil disimpan', 'success');
         } else {
-          await apiFetch('/editor/galleries', { method: 'POST', body: JSON.stringify(body) });
-          toast('Galeri berhasil dibuat', 'success');
+          const createRes = await apiFetch('/editor/galleries', { method: 'POST', body: JSON.stringify(body) });
+          closeDialog('st-manageDlg');
+          await loadGalleries();
+          const newLink = toAbsoluteUrl(createRes?.link);
+          if (newLink) {
+            await copyText(newLink, 'Galeri dibuat & link klien langsung disalin!');
+          } else {
+            toast('Galeri berhasil dibuat', 'success');
+          }
+          return;
         }
 
         closeDialog('st-manageDlg');

@@ -124,8 +124,18 @@
     });
   };
 
+  const toAbsoluteUrl = (url) => {
+    if (!url || typeof url !== 'string') return '';
+    try {
+      return new URL(url, window.location.origin).href;
+    } catch {
+      return url;
+    }
+  };
+
   const copyText = async (text, msg = 'Disalin!') => {
     if (!text) return false;
+    text = toAbsoluteUrl(text);
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -297,6 +307,7 @@
   StudioApp.toast = toast;
   StudioApp.confirmDialog = confirmDialog;
   StudioApp.copyText = copyText;
+  StudioApp.toAbsoluteUrl = toAbsoluteUrl;
   StudioApp.extractFolderId = extractFolderId;
   StudioApp.apiFetch = apiFetch;
   StudioApp.openDialog = openDialog;

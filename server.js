@@ -519,7 +519,7 @@ async function resolveDriveFolder(input) {
 }
 
 // Build detailed gallery view for Editor
-async function buildEditorGalleryDetail(g, forceRefresh = false) {
+async function buildEditorGalleryDetail(g, forceRefresh = false, baseUrl = '') {
   let selectedIds = Array.isArray(g.selected_ids) ? g.selected_ids : [];
   if (typeof selectedIds === 'string') {
     try { selectedIds = JSON.parse(selectedIds); } catch { selectedIds = []; }
@@ -594,7 +594,8 @@ async function buildEditorGalleryDetail(g, forceRefresh = false) {
     note: g.note || '',
     syncedAt,
     missingNameCount: missingCount,
-    photos: selectedPhotos
+    photos: selectedPhotos,
+    link: baseUrl ? `${baseUrl}/client?k=${g.token}` : `/client?k=${g.token}`
   };
 }
 
@@ -872,6 +873,20 @@ function sanitizeSelectedIds(raw) {
 // ==========================================
 // 6. MAIN REQUEST DISPATCHER
 // ==========================================
+export function getBaseUrl(req) {
+  if (process.env.APP_URL) {
+    return process.env.APP_URL.replace(/\/+$/, '');
+  }
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL.replace(/\/+$/, '');
+  }
+  const fwdProto = req.headers['x-forwarded-proto'];
+  const proto = (fwdProto ? fwdProto.split(',')[0].trim() : (req.socket?.encrypted ? 'https' : 'http'));
+  const fwdHost = req.headers['x-forwarded-host'];
+  const host = (fwdHost ? fwdHost.split(',')[0].trim() : req.headers.host) || `localhost:${PORT}`;
+  return `${proto}://${host}`;
+}
+
 export async function handleRequest(req, res) {
   // Ensure storage exists (especially in Vercel serverless /tmp)
   initStorage();
@@ -889,9 +904,8 @@ export async function handleRequest(req, res) {
   }
 
   // Parse URL & Method Tunneling
-  const host = req.headers.host || `localhost:${PORT}`;
-  const protocol = req.headers['x-forwarded-proto'] || 'http';
-  const url = new URL(req.url, `${protocol}://${host}`);
+  const baseUrl = getBaseUrl(req);
+  const url = new URL(req.url, baseUrl);
 
   let pathname = url.pathname;
   if (url.searchParams.has('__path')) {
@@ -1147,7 +1161,7 @@ export async function handleRequest(req, res) {
     const key = settings.editor_key || DEFAULT_EDITOR_KEY;
     return sendJson(res, 200, {
       key,
-      url: `/editor?key=${encodeURIComponent(key)}`
+      url: `${baseUrl}/editor?key=${encodeURIComponent(key)}`
     });
   }
 
@@ -1160,7 +1174,7 @@ export async function handleRequest(req, res) {
 
     return sendJson(res, 200, {
       key: newKey,
-      url: `/editor?key=${encodeURIComponent(newKey)}`
+      url: `${baseUrl}/editor?key=${encodeURIComponent(newKey)}`
     });
   }
 
@@ -1277,7 +1291,7 @@ export async function handleRequest(req, res) {
       status: g.status,
       selected_count: Number(g.selected_count || (Array.isArray(g.selected_ids) ? g.selected_ids.length : 0)),
       updated_at: g.updated_at || g.created_at,
-      link: `/client?k=${g.token}`
+      link: `${baseUrl}/client?k=${g.token}`
     })).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
     return sendJson(res, 200, result);
@@ -1336,7 +1350,7 @@ export async function handleRequest(req, res) {
       prefetchThumbs(resultFolderId).catch(() => {});
     }
 
-    return sendJson(res, 200, { ok: true, id: newId });
+    return sendJson(res, 200, { ok: true, id: newId, link: `${baseUrl}/client?k=${token}` });
   }
 
   // Dynamic /api/editor/galleries/:id routes
@@ -1370,13 +1384,13 @@ export async function handleRequest(req, res) {
       gallery.token = newToken;
       gallery.updated_at = getCurrentTimestamp();
       saveGalleries(galleries);
-      return sendJson(res, 200, { link: `/client?k=${newToken}` });
+      return sendJson(res, 200, { link: `${baseUrl}/client?k=${newToken}` });
     }
 
     // POST /api/editor/galleries/:id/resync
     if (subAction === 'resync' && method === 'POST') {
       try {
-        const detail = await buildEditorGalleryDetail(gallery, true);
+        const detail = await buildEditorGalleryDetail(gallery, true, baseUrl);
         return sendJson(res, 200, detail);
       } catch (err) {
         return sendError(res, 500, 'resync_error', err.message);
@@ -1403,7 +1417,7 @@ export async function handleRequest(req, res) {
     if (!subAction && method === 'GET') {
       const forceRefresh = url.searchParams.get('refresh') === '1';
       try {
-        const detail = await buildEditorGalleryDetail(gallery, forceRefresh);
+        const detail = await buildEditorGalleryDetail(gallery, forceRefresh, baseUrl);
         return sendJson(res, 200, detail);
       } catch (err) {
         return sendError(res, 500, 'detail_error', err.message);
